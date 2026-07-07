@@ -7,7 +7,7 @@
     "source": "github"
   },
   "version": "1.0.0",
-  "websiteUrl": "https://docs.crisphive.com",
+  "websiteUrl": "https://docs.crisphive.com/mcp",
   "remotes": [
     {
       "type": "streamable-http",
