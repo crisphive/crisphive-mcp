@@ -180,6 +180,7 @@ message strings.
 ## Documentation
 
 - Docs: https://docs.crisphive.com
+- MCP: https://docs.crisphive.com/mcp
 - API reference: https://docs.crisphive.com/technical-reference
 - Webhooks: https://docs.crisphive.com/webhook
 - For AI (OpenAPI spec + assistant bootstrap): https://docs.crisphive.com/for-ai
