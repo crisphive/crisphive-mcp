@@ -14,8 +14,9 @@ https://api.crisphive.com/mcp
 
 ## Requirements
 
-Any MCP client that supports remote servers over Streamable HTTP
-(claude.ai, Claude Desktop, Claude Code, Cursor, VS Code, ChatGPT, …).
+Any MCP client that supports remote servers over Streamable HTTP —
+claude.ai, Claude Desktop, Claude Code, ChatGPT, Gemini CLI, Cursor, VS Code,
+Windsurf, Cline, Zed, LM Studio, ….
 
 ## Installation
 
@@ -62,7 +63,25 @@ code --add-mcp '{"name":"crisphive","url":"https://api.crisphive.com/mcp"}'
 **Settings → Connectors** (developer mode) → add MCP server with URL
 `https://api.crisphive.com/mcp` (OAuth).
 
-### Any other MCP client
+### Gemini CLI
+
+Add to `~/.gemini/settings.json` (note: Gemini CLI uses `httpUrl` for
+Streamable HTTP servers):
+
+```json
+{
+  "mcpServers": {
+    "crisphive": {
+      "httpUrl": "https://api.crisphive.com/mcp",
+      "headers": { "Authorization": "Bearer chsk_test_YOUR_KEY" }
+    }
+  }
+}
+```
+
+### Other MCP clients (Windsurf, Cline, Zed, LM Studio, …)
+
+Most clients accept the standard remote-server shape:
 
 ```json
 {
@@ -74,6 +93,15 @@ code --add-mcp '{"name":"crisphive","url":"https://api.crisphive.com/mcp"}'
   }
 }
 ```
+
+Only the URL field name varies in a few clients:
+
+| Client | Config file | URL field |
+|---|---|---|
+| Cline / Roo Code | `cline_mcp_settings.json` | `url` |
+| Windsurf | `~/.codeium/windsurf/mcp_config.json` | `serverUrl` |
+| Gemini CLI | `~/.gemini/settings.json` | `httpUrl` |
+| Zed | `settings.json` → `context_servers` | `url` |
 
 Clients that only speak stdio can bridge with
 [`mcp-remote`](https://www.npmjs.com/package/mcp-remote):
