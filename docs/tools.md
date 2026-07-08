@@ -1,10 +1,12 @@
 # CrispHive MCP — Tool Reference
 
-22 tools, each wrapping one operation of the public REST `/v1` API. Tool names
-are the REST `operationId`s — stable, extend-only (a breaking change would ship
-as a new API version, never as a renamed tool). The authoritative
-machine-readable contract (schemas, field docs, enums) is the OpenAPI 3.0.3
-spec: `https://api.crisphive.com/developers/openapi.json`.
+22 field-service-management tools — job booking, appointment scheduling,
+work-order tracking, dispatch data, CRM sync, service catalog, workforce,
+territories and fleet — each wrapping one operation of the public REST `/v1`
+API. Tool names are the REST `operationId`s — stable, extend-only (a breaking
+change would ship as a new API version, never as a renamed tool). The
+authoritative machine-readable contract (schemas, field docs, enums) is the
+OpenAPI 3.0.3 spec: `https://api.crisphive.com/developers/openapi.json`.
 
 ## Customers — full CRUD (CRM sync)
 
@@ -20,12 +22,12 @@ spec: `https://api.crisphive.com/developers/openapi.json`.
 
 | Tool | REST operation | Description |
 |---|---|---|
-| `createJobRequest` | `POST /v1/job-requests` | Create a booking for an existing customer: `customer_id` + `job_dates` (1–12 entries of date + morning/afternoon/evening periods). Optional `job_type_id`, `skill_ids`, `description`. Supports `idempotency_key`. |
-| `listJobRequests` | `GET /v1/job-requests` | List job requests (paginated). |
-| `getJobRequest` | `GET /v1/job-requests/{id}` | Full booking detail: status, schedule, assigned crew. |
-| `getJobRequestTimeline` | `GET /v1/job-requests/{id}/timeline` | Per-status progress timeline of a job. |
-| `listJobRequestBookingWindows` | `GET /v1/job-requests/booking-windows` | Bookable date/period windows from the live scheduling engine. Requires `x_timezone` (IANA timezone). Call this first and offer only the returned windows. |
-| `listJobRequestChanges` | `GET /v1/job-requests/changes` | Incremental sync feed: pass the last `next_since` watermark, upsert results by `id`, poll again immediately while `has_more` is true. |
+| `createJobRequest` | `POST /v1/job-requests` | Book a field-service job — the work order that enters the dispatch & scheduling pipeline: `customer_id` + `job_dates` (1–12 entries of date + morning/afternoon/evening periods). Optional `job_type_id`, `skill_ids`, `description`. Supports `idempotency_key`. |
+| `listJobRequests` | `GET /v1/job-requests` | List bookings (work orders) with dispatch-oriented filters: workflow status, customer, technician, date range, search. |
+| `getJobRequest` | `GET /v1/job-requests/{id}` | Full work-order detail: workflow status, quoted duration, confirmed schedule, assigned technician / crew. |
+| `getJobRequestTimeline` | `GET /v1/job-requests/{id}/timeline` | Job lifecycle timeline — per-status progress of the work order (booked → confirmed → en route → arrived → completed). |
+| `listJobRequestBookingWindows` | `GET /v1/job-requests/booking-windows` | Real-time appointment availability from the scheduling engine (technician capacity, working hours, territory coverage). Requires `x_timezone` (IANA timezone). Call this first and offer only the returned windows. |
+| `listJobRequestChanges` | `GET /v1/job-requests/changes` | Incremental sync feed keeping an external CRM/ERP/field-service tool live: pass the last `next_since` watermark, upsert results by `id`, poll again immediately while `has_more` is true. |
 
 Quoting, confirming and completing a job are dashboard operations — an
 integration **observes** those transitions via `listJobRequestChanges` (or
@@ -35,22 +37,22 @@ webhooks), it does not drive them.
 
 | Tool | REST operation | Description |
 |---|---|---|
-| `listJobTypes` | `GET /v1/job-types` | List the business's service catalog (for `job_type_id`). |
-| `getJobType` | `GET /v1/job-types/{id}` | Get one job type. |
-| `listSkills` | `GET /v1/skills` | Flat list of all active skills (primary discovery call for `skill_ids`). |
-| `listSkillCategories` | `GET /v1/skill-categories` | List skill categories. |
-| `listSkillsByCategory` | `GET /v1/skill-categories/{id}/skills` | List skills within a category. |
-| `listServiceAreas` | `GET /v1/service-areas` | List geographic service areas (for `service_area_id` on customers). |
-| `getServiceArea` | `GET /v1/service-areas/{id}` | Get one service area. |
+| `listJobTypes` | `GET /v1/job-types` | The business's service catalog — offerings like installation, repair, maintenance, inspection (for `job_type_id`). |
+| `getJobType` | `GET /v1/job-types/{id}` | Get one service-catalog entry (job/work-order type) with localized display name. |
+| `listSkills` | `GET /v1/skills` | Flat list of technician skills / qualifications — the vocabulary of skill-based dispatch (primary discovery call for `skill_ids`). |
+| `listSkillCategories` | `GET /v1/skill-categories` | Skill categories — qualifications grouped by trade/specialty (HVAC, plumbing, electrical, …). |
+| `listSkillsByCategory` | `GET /v1/skill-categories/{id}/skills` | Skills within one trade/specialty category, with per-skill technician counts. |
+| `listServiceAreas` | `GET /v1/service-areas` | Geographic coverage: service territories / coverage zones (for `service_area_id` on customers). |
+| `getServiceArea` | `GET /v1/service-areas/{id}` | Get one service territory (coverage zone). |
 
 ## Team & fleet — read-only
 
 | Tool | REST operation | Description |
 |---|---|---|
-| `listTechnicians` | `GET /v1/technicians` | List the technician roster (for `preferred_technician_id` on customers). |
-| `getTechnician` | `GET /v1/technicians/{id}` | Get one technician. |
-| `listVehicles` | `GET /v1/vehicles` | List the vehicle fleet (display-only). |
-| `getVehicle` | `GET /v1/vehicles/{id}` | Get one vehicle. |
+| `listTechnicians` | `GET /v1/technicians` | The field workforce roster: technicians with status, assignment tier, skills and crew relations (for `preferred_technician_id`). |
+| `getTechnician` | `GET /v1/technicians/{id}` | One technician's dispatch-ready profile: status, tier, qualifications, crew relations, vehicles. |
+| `listVehicles` | `GET /v1/vehicles` | The service fleet: vans/trucks with operational status (idle, on job, maintenance). |
+| `getVehicle` | `GET /v1/vehicles/{id}` | Get one fleet vehicle and which technicians use it. |
 
 ---
 
