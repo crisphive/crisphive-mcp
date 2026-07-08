@@ -192,6 +192,17 @@ message strings.
 - Client integration guide: [docs/integration.md](docs/integration.md)
 - Tool reference: [docs/tools.md](docs/tools.md)
 
+## Privacy & support
+
+- **Privacy policy:** https://crisphive.com/privacy-policy — CrispHive processes
+  the business data reachable through the API (customers, bookings, technicians,
+  fleet) solely to operate the Service; it does **not** sell personal
+  information. Data is retained while the account is active and shared only with
+  service providers/sub-processors as necessary. An agent connected over MCP acts
+  on behalf of the authorizing business and is scoped to that business's data,
+  environment (live vs sandbox) and granted permissions.
+- **Support:** support@crisphive.com
+
 ## License
 
 [MIT](LICENSE)
