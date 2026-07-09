@@ -1,7 +1,7 @@
-# CrispHive MCP — Client Integration Guide
+# Crisphive MCP — Client Integration Guide
 
 > Reference for anyone building or configuring an MCP client against the
-> CrispHive MCP server. Covers both authentication paths (API key and OAuth
+> Crisphive MCP server. Covers both authentication paths (API key and OAuth
 > 2.1), the tool model, request/response conventions, and the exact discovery +
 > OAuth flow a connector performs.
 
@@ -64,7 +64,7 @@ claude mcp add --transport http crisphive https://api.crisphive.com/mcp \
 
 ### 2b. OAuth 2.1 (end-user connectors — no key handling)
 
-For products where a CrispHive business authorizes your agent without copying a
+For products where a Crisphive business authorizes your agent without copying a
 key (a claude.ai / ChatGPT connector, or any OAuth-capable MCP client), the
 `/mcp` endpoint is also a **full OAuth 2.1 Authorization Server**. A compliant
 MCP client performs the whole flow automatically — you write no OAuth code. The
@@ -148,7 +148,7 @@ GET /oauth/authorize
   &state=<opaque-csrf-token>
 ```
 
-The business owner signs in to CrispHive and approves. The AS **freezes the
+The business owner signs in to Crisphive and approves. The AS **freezes the
 business, region and environment from the owner's session** — none of these can
 be influenced by a request parameter. On approval the browser is redirected:
 
@@ -218,7 +218,7 @@ store only the newest refresh token returned.
 
 ### Scopes
 
-`scope` is a space-separated list of CrispHive **permission codes** (the same
+`scope` is a space-separated list of Crisphive **permission codes** (the same
 catalog as restricted API keys / dashboard permission groups, e.g.
 `customers_view`, `customers_manage`, `job_requests_view`). Omitting `scope`
 grants **full business access**. A scoped token gets `403` from any tool
@@ -277,7 +277,7 @@ getJobRequest / listJobRequestChanges    → track status
 ## 6. Security properties (what the client can rely on)
 
 - Access tokens are audience-pinned to the MCP surface and are **never**
-  accepted on the CrispHive dashboard/admin/customer surfaces (and vice-versa).
+  accepted on the Crisphive dashboard/admin/customer surfaces (and vice-versa).
 - A token is scoped to **one** business + region + environment, fixed at
   consent time; no request parameter can widen it.
 - PKCE `S256` is mandatory; authorization codes are single-use, 60s TTL, and

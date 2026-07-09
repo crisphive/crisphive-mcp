@@ -1,7 +1,7 @@
-# CrispHive MCP
+# Crisphive MCP
 
 The official MCP (Model Context Protocol) server for the
-[CrispHive API](https://docs.crisphive.com/) — **agentic AI scheduling
+[Crisphive API](https://docs.crisphive.com/) — **agentic AI scheduling
 infrastructure for field service**.
 
 Lets AI agents — Claude, ChatGPT, Gemini, Cursor or any MCP client — match
@@ -29,7 +29,7 @@ Windsurf, Cline, Zed, LM Studio, ….
 ### claude.ai / Claude Desktop (OAuth — no key needed)
 
 **Settings → Connectors → Add custom connector**, paste
-`https://api.crisphive.com/mcp`. Sign in as the CrispHive business owner when
+`https://api.crisphive.com/mcp`. Sign in as the Crisphive business owner when
 the consent screen opens. *(Custom connectors require a Claude plan that
 supports them.)*
 
@@ -126,7 +126,7 @@ Clients that only speak stdio can bridge with
 ## Authentication
 
 Every request is authenticated with a secret API key sent as a bearer token.
-Create keys from your CrispHive business dashboard. **The key prefix selects the
+Create keys from your Crisphive business dashboard. **The key prefix selects the
 data environment:**
 
 - `chsk_live_…` → live (production) data
@@ -178,7 +178,7 @@ value when retrying.
 
 ## Errors
 
-Every tool returns the CrispHive response envelope (as text and as
+Every tool returns the Crisphive response envelope (as text and as
 `structuredContent`): `error_code` is `0` on success, a stable string on
 failure (`CUSTOMER_NOT_FOUND`, `API_KEY_INVALID`, …). Match codes, never
 message strings.
@@ -195,7 +195,7 @@ message strings.
 
 ## Privacy & support
 
-- **Privacy policy:** https://crisphive.com/privacy-policy — CrispHive processes
+- **Privacy policy:** https://crisphive.com/privacy-policy — Crisphive processes
   the business data reachable through the API (customers, bookings, technicians,
   fleet) solely to operate the Service; it does **not** sell personal
   information. Data is retained while the account is active and shared only with

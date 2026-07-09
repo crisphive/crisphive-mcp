@@ -1,4 +1,4 @@
-# CrispHive MCP — Tool Reference
+# Crisphive MCP — Tool Reference
 
 22 field-service-management tools — job booking, appointment scheduling,
 work-order tracking, dispatch data, CRM sync, service catalog, workforce,
@@ -69,7 +69,7 @@ webhooks), it does not drive them.
 
 ## Result conventions
 
-Every tool returns the CrispHive response envelope as a text block **and** as
+Every tool returns the Crisphive response envelope as a text block **and** as
 `structuredContent`, with a per-tool `outputSchema`:
 
 ```json
