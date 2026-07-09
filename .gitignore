@@ -1,0 +1,8 @@
+# Registry signing keys / secrets — NEVER commit (public repo).
+# Restore crisphive-registry.pem here from 1Password only when (re)publishing
+# with mcp-publisher, then it stays untracked.
+*.pem
+*.key
+crisphive-registry.pem
+.env
+.env.*
