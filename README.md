@@ -143,7 +143,7 @@ PKCE. Full flow, scopes and token lifetimes:
 
 ## Tools
 
-22 tools, one per operation of the public `/v1` API — same names as the SDK
+26 tools, one per operation of the public `/v1` API — same names as the SDK
 methods (`listCustomers`, `createJobRequest`, …), derived from the same OpenAPI
 spec so REST and MCP never drift. Full reference:
 [docs/tools.md](docs/tools.md).
@@ -154,6 +154,7 @@ spec so REST and MCP never drift. Full reference:
 | **Bookings** (create & track) | `createJobRequest` · `listJobRequests` · `getJobRequest` · `getJobRequestTimeline` · `listJobRequestBookingWindows` · `listJobRequestChanges` |
 | **Catalog** (read-only) | `listJobTypes` · `getJobType` · `listSkills` · `listSkillCategories` · `listSkillsByCategory` · `listServiceAreas` · `getServiceArea` |
 | **Team & fleet** (read-only) | `listTechnicians` · `getTechnician` · `listVehicles` · `getVehicle` |
+| **Matching & scheduling** (read-only, engine-computed) | `listMatchingSlots` · `listCrewCandidates` · `listTechnicianAvailability` · `getTechnicianAvailability` |
 
 Typical agent flow:
 

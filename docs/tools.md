@@ -1,8 +1,8 @@
 # Crisphive MCP — Tool Reference
 
-22 field-service-management tools — job booking, appointment scheduling,
-work-order tracking, dispatch data, CRM sync, service catalog, workforce,
-territories and fleet — each wrapping one operation of the public REST `/v1`
+26 field-service-management tools — job booking, appointment scheduling,
+crew/skill/availability matching, work-order tracking, dispatch data, CRM
+sync, service catalog, workforce, territories and fleet — each wrapping one operation of the public REST `/v1`
 API. Tool names are the REST `operationId`s — stable, extend-only (a breaking
 change would ship as a new API version, never as a renamed tool). The
 authoritative machine-readable contract (schemas, field docs, enums) is the
@@ -23,7 +23,7 @@ OpenAPI 3.0.3 spec: `https://api.crisphive.com/developers/openapi.json`.
 | Tool | REST operation | Description |
 |---|---|---|
 | `createJobRequest` | `POST /v1/job-requests` | Book a field-service job — the work order that enters the dispatch & scheduling pipeline: `customer_id` + `job_dates` (1–12 entries of date + morning/afternoon/evening periods). Optional `job_type_id`, `skill_ids`, `description`. Supports `idempotency_key`. |
-| `listJobRequests` | `GET /v1/job-requests` | List bookings (work orders) with dispatch-oriented filters: workflow status, customer, technician, date range, search. |
+| `listJobRequests` | `GET /v1/job-requests` | List bookings (work orders) with dispatch-oriented filters: workflow status, customer, technician, date range, search. Doubles as the SCHEDULE query: `technician_id` + `scheduled_from`/`scheduled_to` reads one technician's agenda for a day or week. |
 | `getJobRequest` | `GET /v1/job-requests/{id}` | Full work-order detail: workflow status, quoted duration, confirmed schedule, assigned technician / crew. |
 | `getJobRequestTimeline` | `GET /v1/job-requests/{id}/timeline` | Job lifecycle timeline — per-status progress of the work order (booked → confirmed → en route → arrived → completed). |
 | `listJobRequestBookingWindows` | `GET /v1/job-requests/booking-windows` | Real-time appointment availability from the scheduling engine (technician capacity, working hours, territory coverage). Requires `x_timezone` (IANA timezone). Call this first and offer only the returned windows. |
@@ -32,6 +32,15 @@ OpenAPI 3.0.3 spec: `https://api.crisphive.com/developers/openapi.json`.
 Quoting, confirming and completing a job are dashboard operations — an
 integration **observes** those transitions via `listJobRequestChanges` (or
 webhooks), it does not drive them.
+
+## Matching & scheduling — read-only, engine-computed
+
+| Tool | REST operation | Description |
+|---|---|---|
+| `listMatchingSlots` | `GET /v1/job-requests/{id}/time-segments` | Matching time slots for a QUOTED job: the bookable arrival-window grid, each slot listing the technicians actually available then (skills, weekly availability, existing schedule, time off and travel all checked) with per-technician match scores. Optional `step_minutes` (5–240) overrides the slot width. |
+| `listCrewCandidates` | `GET /v1/job-requests/{id}/crew-candidates` | Ranked feasible technicians for a job — per-slot skill matching, score breakdown (distance, travel, matched skills) and the exact on-site session plan each candidate would work. `include_buddies`, `include_vehicle`, `force_lead_id` (check one specific technician; error if not feasible). NOT a raw roster — that's `listTechnicians`. |
+| `listTechnicianAvailability` | `GET /v1/technician-availability` | The team's recurring weekly working hours: shift/break rows per `week_day` (0=Monday), bounded by `start_minute`/`end_minute` in minutes since midnight. The schedule template the matching engine checks candidates against. |
+| `getTechnicianAvailability` | `GET /v1/technicians/{id}/availability` | One technician's weekly working hours — answers "when does this technician work?". |
 
 ## Catalog — read-only (discover the reference IDs used by the writes above)
 
