@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "crisphive": {
+      "url": "https://api.crisphive.com/mcp"
+    }
+  }
+}
