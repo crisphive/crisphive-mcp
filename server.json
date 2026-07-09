@@ -1,12 +1,12 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "com.crisphive/mcp",
-  "description": "Field service management for AI agents: booking, scheduling, dispatch, work orders, CRM, fleet.",
+  "description": "Agentic scheduling & booking for field service: availability, jobs, customers, crews, fleet.",
   "repository": {
     "url": "https://github.com/crisphive/crisphive-mcp",
     "source": "github"
   },
-  "version": "1.0.0",
+  "version": "1.0.1",
   "websiteUrl": "https://docs.crisphive.com/mcp",
   "remotes": [
     {

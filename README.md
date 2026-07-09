@@ -1,13 +1,14 @@
 # CrispHive MCP
 
 The official MCP (Model Context Protocol) server for the
-[CrispHive API](https://docs.crisphive.com/) — **field service management for
-AI agents**.
+[CrispHive API](https://docs.crisphive.com/) — **agentic AI scheduling
+infrastructure for field service**.
 
-Lets AI agents — Claude, ChatGPT, Gemini, Cursor or any MCP client — run a
-field-service business's front office: **job booking & appointment
-scheduling**, **work-order tracking**, real-time availability from a live
-**dispatch & scheduling engine**, **customer (CRM) sync**, service catalogs,
+Lets AI agents — Claude, ChatGPT, Gemini, Cursor or any MCP client — match
+schedules between customers and businesses and route crews to jobs by
+**location, skills, and real-time availability**: **job booking & appointment
+scheduling**, **work-order tracking**, availability from a live **dispatch &
+scheduling engine**, **customer (CRM) sync**, service catalogs,
 **technician & crew rosters**, geographic **service territories** and **fleet**
 — for trades and home services such as HVAC, plumbing, electrical, cleaning,
 appliance repair and property maintenance. Hosted remote server; nothing to
