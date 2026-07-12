@@ -1,9 +1,11 @@
 # Crisphive MCP — Tool Reference
 
-26 field-service-management tools — job booking, appointment scheduling,
-crew/skill/availability matching, work-order tracking, dispatch data, CRM
-sync, service catalog, workforce, territories and fleet — each wrapping one operation of the public REST `/v1`
-API. Tool names are the REST `operationId`s — stable, extend-only (a breaking
+36 field-service-management tools — job booking, quoting & schedule
+confirmation, appointment scheduling, crew/skill/availability matching,
+priority (P0–P3) & SLA management, emergency dispatch with cascade
+rescheduling, job moves, work-order tracking, dispatch data, CRM sync,
+service catalog, workforce, territories and fleet — each wrapping one
+operation of the public REST `/v1` API. Tool names are the REST `operationId`s — stable, extend-only (a breaking
 change would ship as a new API version, never as a renamed tool). The
 authoritative machine-readable contract (schemas, field docs, enums) is the
 OpenAPI 3.0.3 spec: `https://api.crisphive.com/developers/openapi.json`.
@@ -22,16 +24,17 @@ OpenAPI 3.0.3 spec: `https://api.crisphive.com/developers/openapi.json`.
 
 | Tool | REST operation | Description |
 |---|---|---|
-| `createJobRequest` | `POST /v1/job-requests` | Book a field-service job — the work order that enters the dispatch & scheduling pipeline: `customer_id` + `job_dates` (1–12 entries of date + morning/afternoon/evening periods). Optional `job_type_id`, `skill_ids`, `description`. Supports `idempotency_key`. |
+| `createJobRequest` | `POST /v1/job-requests` | Book a field-service job — the work order that enters the dispatch & scheduling pipeline: `customer_id` + `job_dates` (1–12 entries of date + morning/afternoon/evening periods). Optional `job_type_id`, `skill_ids`, `description`, `priority` (`p0`–`p3`, default from business settings) and `sla_deadline` (P1 only — arms auto-escalation to P0). Supports `idempotency_key`. |
 | `listJobRequests` | `GET /v1/job-requests` | List bookings (work orders) with dispatch-oriented filters: workflow status, customer, technician, date range, search. Doubles as the SCHEDULE query: `technician_id` + `scheduled_from`/`scheduled_to` reads one technician's agenda for a day or week. |
 | `getJobRequest` | `GET /v1/job-requests/{id}` | Full work-order detail: workflow status, quoted duration, confirmed schedule, assigned technician / crew. |
 | `getJobRequestTimeline` | `GET /v1/job-requests/{id}/timeline` | Job lifecycle timeline — per-status progress of the work order (booked → confirmed → en route → arrived → completed). |
 | `listJobRequestBookingWindows` | `GET /v1/job-requests/booking-windows` | Real-time appointment availability from the scheduling engine (technician capacity, working hours, territory coverage). Requires `x_timezone` (IANA timezone). Call this first and offer only the returned windows. |
 | `listJobRequestChanges` | `GET /v1/job-requests/changes` | Incremental sync feed keeping an external CRM/ERP/field-service tool live: pass the last `next_since` watermark, upsert results by `id`, poll again immediately while `has_more` is true. |
 
-Quoting, confirming and completing a job are dashboard operations — an
-integration **observes** those transitions via `listJobRequestChanges` (or
-webhooks), it does not drive them.
+An integration can now DRIVE the schedule end-to-end (create → quote →
+confirm — see "Scheduling actions" below). Completing a job stays a
+dashboard/technician operation — observe it via `listJobRequestChanges` (or
+webhooks).
 
 ## Matching & scheduling — read-only, engine-computed
 
@@ -41,6 +44,26 @@ webhooks), it does not drive them.
 | `listCrewCandidates` | `GET /v1/job-requests/{id}/crew-candidates` | Ranked feasible technicians for a job — per-slot skill matching, score breakdown (distance, travel, matched skills) and the exact on-site session plan each candidate would work. `include_buddies`, `include_vehicle`, `force_lead_id` (check one specific technician; error if not feasible). NOT a raw roster — that's `listTechnicians`. |
 | `listTechnicianAvailability` | `GET /v1/technician-availability` | The team's recurring weekly working hours: shift/break rows per `week_day` (0=Monday), bounded by `start_minute`/`end_minute` in minutes since midnight. The schedule template the matching engine checks candidates against. |
 | `getTechnicianAvailability` | `GET /v1/technicians/{id}/availability` | One technician's weekly working hours — answers "when does this technician work?". |
+| `getTechnicianSchedule` | `GET /v1/technicians/{id}/schedule` | The technician's REAL occupancy over a date range (`from`/`to`, max 31 days): job sessions (solo/lead and crew lanes) + approved time-off blocks. Combine with the weekly hours above for the full availability picture. |
+| `listNearbyTechnicians` | `GET /v1/technicians/nearby` | Job-less location query: who could serve a hypothetical visit at (`lat`,`lng`) starting `at` for `duration_minutes` — engine-checked hours/schedule/time-off/territories/skills, ranked nearest-arrival first (ETA from static start locations). Use before creating a booking. |
+
+## Scheduling actions — drive the schedule via API
+
+| Tool | REST operation | Description |
+|---|---|---|
+| `quoteJobRequest` | `POST /v1/job-requests/{id}/quote` | Set the job's time bundle: `job_duration_minutes` (+ optional mobilization/demobilization and a multi-person `crew` plan — exactly one lead, wrench_percent summing to 100). Required before confirming. |
+| `confirmJobRequest` | `POST /v1/job-requests/{id}/confirm` | Confirm the schedule: `scheduled_at` (business-local naive datetime). Crisphive auto-selects the optimal technician/crew (location, skills, availability, priority) — or pass `technician_id` to force a specific lead (feasibility still enforced). No capacity → `JOB_REQUEST_NO_TECHNICIAN_AVAILABLE`; a P0 gets `JOB_REQUEST_P0_REQUIRES_DISPLACEMENT` (use the emergency flow). Supports `idempotency_key`. |
+| `previewJobRequestMove` | `POST /v1/job-requests/{id}/move/preview` | Preview moving a confirmed job to a new time and/or technician: validates the landing slot (customer-window hard block, occupied-slot check) and returns displaced jobs, warnings and crew swaps — WITHOUT writing. |
+| `commitJobRequestMove` | `POST /v1/job-requests/{id}/move/commit` | Apply the previewed move (echo `expected_version` / `expected_move_ids` to fence drift → `SCHEDULE_MOVE_PLAN_DRIFTED`). Non-P0 moves must land in free capacity unless the business enabled `allow_non_p0_displacement`. Supports `idempotency_key`. |
+
+## Priority & emergency dispatch (P0–P3, SLA, cascade)
+
+| Tool | REST operation | Description |
+|---|---|---|
+| `updateJobPriority` | `PATCH /v1/job-requests/{id}/priority` | Set a job's P0–P3 priority (+ optional `sla_deadline` on P1 — arms auto-escalation to P0 with a pre-escalation warning — and `note` justification for the audit trail). |
+| `listEmergencyCandidates` | `POST /v1/job-requests/emergency/candidates` | Ranked technicians for a P0 emergency insert — fastest arrival first, each with its displacement preview, plus a historical `crew_recommendation` (median crew size on comparable completed jobs; ALWAYS display its disclaimer). |
+| `previewEmergencyReschedule` | `POST /v1/job-requests/emergency/preview` | The full cascade WITHOUT writing: which jobs move per day — or, with `displacement_mode: "reassign"`, which are handed to another technician at their ORIGINAL time (`reassignments`). |
+| `commitEmergencyReschedule` | `POST /v1/job-requests/emergency/commit` | Apply the previewed emergency plan (locks + version fences; drift → `EMERGENCY_RESCHEDULE_PLAN_DRIFTED`, re-preview — in reassign mode some displaced jobs may already be re-staffed and notified). The emergency job must be `p0` and quoted; an unconfirmed job is auto-confirmed. Supports `idempotency_key`. |
 
 ## Catalog — read-only (discover the reference IDs used by the writes above)
 

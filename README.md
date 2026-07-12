@@ -143,7 +143,7 @@ PKCE. Full flow, scopes and token lifetimes:
 
 ## Tools
 
-26 tools, one per operation of the public `/v1` API — same names as the SDK
+36 tools, one per operation of the public `/v1` API — same names as the SDK
 methods (`listCustomers`, `createJobRequest`, …), derived from the same OpenAPI
 spec so REST and MCP never drift. Full reference:
 [docs/tools.md](docs/tools.md).
@@ -154,7 +154,9 @@ spec so REST and MCP never drift. Full reference:
 | **Bookings** (create & track) | `createJobRequest` · `listJobRequests` · `getJobRequest` · `getJobRequestTimeline` · `listJobRequestBookingWindows` · `listJobRequestChanges` |
 | **Catalog** (read-only) | `listJobTypes` · `getJobType` · `listSkills` · `listSkillCategories` · `listSkillsByCategory` · `listServiceAreas` · `getServiceArea` |
 | **Team & fleet** (read-only) | `listTechnicians` · `getTechnician` · `listVehicles` · `getVehicle` |
-| **Matching & scheduling** (read-only, engine-computed) | `listMatchingSlots` · `listCrewCandidates` · `listTechnicianAvailability` · `getTechnicianAvailability` |
+| **Matching & scheduling** (read-only, engine-computed) | `listMatchingSlots` · `listCrewCandidates` · `listTechnicianAvailability` · `getTechnicianAvailability` · `getTechnicianSchedule` · `listNearbyTechnicians` |
+| **Scheduling actions** (drive the schedule) | `quoteJobRequest` · `confirmJobRequest` · `previewJobRequestMove` · `commitJobRequestMove` |
+| **Priority & emergency dispatch** (P0–P3, SLA, cascade) | `updateJobPriority` · `listEmergencyCandidates` · `previewEmergencyReschedule` · `commitEmergencyReschedule` |
 
 Typical agent flow:
 
@@ -163,7 +165,17 @@ listSkills / listJobTypes                → discover reference IDs
 createCustomer                           → { customer_id }
 listJobRequestBookingWindows             → offer only the returned windows
 createJobRequest                         → booking created
+quoteJobRequest → confirmJobRequest      → scheduled (auto or forced technician)
 getJobRequest / listJobRequestChanges    → track status
+```
+
+Emergency (P0) flow:
+
+```
+createJobRequest (priority: "p0") → quoteJobRequest
+listEmergencyCandidates                  → ranked techs + crew_recommendation
+previewEmergencyReschedule               → what moves (or reassigns)
+commitEmergencyReschedule                → inserted + auto-confirmed
 ```
 
 ## Pagination
@@ -173,7 +185,8 @@ List tools accept `page` / `limit` and return a `meta` object (`total`,
 
 ## Idempotency
 
-Create tools (`createCustomer`, `createJobRequest`) accept an
+Create/commit tools (`createCustomer`, `createJobRequest`, `confirmJobRequest`,
+`commitJobRequestMove`, `commitEmergencyReschedule`) accept an
 `idempotency_key` argument so retries never create a duplicate — pass the same
 value when retrying.
 
