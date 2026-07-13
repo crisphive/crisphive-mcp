@@ -143,7 +143,7 @@ PKCE. Full flow, scopes and token lifetimes:
 
 ## Tools
 
-36 tools, one per operation of the public `/v1` API — same names as the SDK
+46 tools, one per operation of the public `/v1` API — same names as the SDK
 methods (`listCustomers`, `createJobRequest`, …), derived from the same OpenAPI
 spec so REST and MCP never drift. Full reference:
 [docs/tools.md](docs/tools.md).
@@ -153,7 +153,8 @@ spec so REST and MCP never drift. Full reference:
 | **Customers** (CRM sync, full CRUD) | `listCustomers` · `createCustomer` · `getCustomer` · `updateCustomer` · `deleteCustomer` |
 | **Bookings** (create & track) | `createJobRequest` · `listJobRequests` · `getJobRequest` · `getJobRequestTimeline` · `listJobRequestBookingWindows` · `listJobRequestChanges` |
 | **Catalog** (read-only) | `listJobTypes` · `getJobType` · `listSkills` · `listSkillCategories` · `listSkillsByCategory` · `listServiceAreas` · `getServiceArea` |
-| **Team & fleet** (read-only) | `listTechnicians` · `getTechnician` · `listVehicles` · `getVehicle` |
+| **Team & fleet** (reads) | `listTechnicians` · `getTechnician` · `listVehicles` · `getVehicle` |
+| **Team roster management** (HR-system sync) | `createTechnician` · `updateTechnician` · `deleteTechnician` · `replaceTechnicianBuddies` · `replaceTechnicianLeads` · `replaceTechnicianVehicles` · `replaceTechnicianServiceAreas` · `replaceTechnicianSkills` · `listTechnicianSkills` · `listBusinessGroups` |
 | **Matching & scheduling** (read-only, engine-computed) | `listMatchingSlots` · `listCrewCandidates` · `listTechnicianAvailability` · `getTechnicianAvailability` · `getTechnicianSchedule` · `listNearbyTechnicians` |
 | **Scheduling actions** (drive the schedule) | `quoteJobRequest` · `confirmJobRequest` · `previewJobRequestMove` · `commitJobRequestMove` |
 | **Priority & emergency dispatch** (P0–P3, SLA, cascade) | `updateJobPriority` · `listEmergencyCandidates` · `previewEmergencyReschedule` · `commitEmergencyReschedule` |

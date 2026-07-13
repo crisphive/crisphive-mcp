@@ -1,10 +1,10 @@
 # Crisphive MCP — Tool Reference
 
-36 field-service-management tools — job booking, quoting & schedule
+46 field-service-management tools — job booking, quoting & schedule
 confirmation, appointment scheduling, crew/skill/availability matching,
 priority (P0–P3) & SLA management, emergency dispatch with cascade
 rescheduling, job moves, work-order tracking, dispatch data, CRM sync,
-service catalog, workforce, territories and fleet — each wrapping one
+service catalog, workforce + team-roster management (HR sync), territories and fleet — each wrapping one
 operation of the public REST `/v1` API. Tool names are the REST `operationId`s — stable, extend-only (a breaking
 change would ship as a new API version, never as a renamed tool). The
 authoritative machine-readable contract (schemas, field docs, enums) is the
@@ -77,7 +77,7 @@ webhooks).
 | `listServiceAreas` | `GET /v1/service-areas` | Geographic coverage: service territories / coverage zones (for `service_area_id` on customers). |
 | `getServiceArea` | `GET /v1/service-areas/{id}` | Get one service territory (coverage zone). |
 
-## Team & fleet — read-only
+## Team & fleet — reads
 
 | Tool | REST operation | Description |
 |---|---|---|
@@ -85,6 +85,37 @@ webhooks).
 | `getTechnician` | `GET /v1/technicians/{id}` | One technician's dispatch-ready profile: status, tier, qualifications, crew relations, vehicles. |
 | `listVehicles` | `GET /v1/vehicles` | The service fleet: vans/trucks with operational status (idle, on job, maintenance). |
 | `getVehicle` | `GET /v1/vehicles/{id}` | Get one fleet vehicle and which technicians use it. |
+
+---
+
+## Team roster management — HR-system sync
+
+Create and maintain technicians — the same operations the business dashboard
+uses. Creating a technician runs the full identity flow (the person is
+resolved or created from phone/email; login is passwordless later; NO invite
+email is sent). Relation writes are REPLACE semantics: send the full list,
+`[]` clears. The matching engine ranks on skills/buddies/vehicles/service
+areas, so keep them in sync.
+
+| Tool | REST operation | Description |
+|---|---|---|
+| `createTechnician` | `POST /v1/technicians` | Add a team member. Requires `business_group_id` (discover via `listBusinessGroups`) and at least one of `phone`/`email`. Optional `assignment_tier` (lead/buddy/float), day-start location, inline `buddy_ids`/`lead_ids`/`service_area_ids`. Supports `idempotency_key`. |
+| `updateTechnician` | `PUT /v1/technicians/{id}` | Full-replace profile update (send every field; relations have their own tools). |
+| `deleteTechnician` | `DELETE /v1/technicians/{id}` | Remove from the roster (soft; buddy/vehicle references are scrubbed automatically). |
+| `replaceTechnicianBuddies` | `PUT /v1/technicians/{id}/buddies` | Set a lead's buddy list (self-buddy rejected). |
+| `replaceTechnicianLeads` | `PUT /v1/technicians/{id}/leads` | Same relation from the buddy's side: which leads this technician assists. |
+| `replaceTechnicianVehicles` | `PUT /v1/technicians/{id}/vehicles` | Set the vehicles the technician uses (discover via `listVehicles`). |
+| `replaceTechnicianServiceAreas` | `PUT /v1/technicians/{id}/service-areas` | Set the technician's service-area assignments (discover via `listServiceAreas`). |
+| `replaceTechnicianSkills` | `PATCH /v1/technicians/{id}/skills` | Set the technician's skill set (discover via `listSkills`). |
+| `listTechnicianSkills` | `GET /v1/technicians/{id}/skills` | Read a technician's assigned skills (paginated). |
+| `listBusinessGroups` | `GET /v1/permission/groups` | The business's role groups — the `business_group_id` reference for create/update (needs the `permission_view` scope on restricted keys; full-access keys always pass). |
+
+Suspension/status changes and role-group AUTHORING stay dashboard-only.
+Owner/Administrator group assignment is rejected for API keys
+(`TECHNICIAN_ROLE_API_KEY_FORBIDDEN`), and the last active Owner cannot be
+removed or demoted (`TECHNICIAN_LAST_OWNER`). Sandbox caveat: a chsk_test_
+create still resolves the REAL person identity for the given phone/email —
+use throwaway addresses when experimenting.
 
 ---
 
