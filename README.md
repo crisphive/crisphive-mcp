@@ -9,7 +9,8 @@ schedules between customers and businesses and route crews to jobs by
 **location, skills, and real-time availability**: **job booking & appointment
 scheduling**, **work-order tracking**, availability from a live **dispatch &
 scheduling engine**, **customer (CRM) sync**, service catalogs,
-**technician & crew rosters**, geographic **service territories** and **fleet**
+**technician & crew rosters**, geographic **service territories**, **fleet**
+and **webhook event callbacks**
 — for trades and home services such as HVAC, plumbing, electrical, cleaning,
 appliance repair and property maintenance. Hosted remote server; nothing to
 install or run (this repository holds the documentation and registry manifest).
@@ -143,7 +144,7 @@ PKCE. Full flow, scopes and token lifetimes:
 
 ## Tools
 
-46 tools, one per operation of the public `/v1` API — same names as the SDK
+56 tools, one per operation of the public `/v1` API — same names as the SDK
 methods (`listCustomers`, `createJobRequest`, …), derived from the same OpenAPI
 spec so REST and MCP never drift. Full reference:
 [docs/tools.md](docs/tools.md).
@@ -158,6 +159,7 @@ spec so REST and MCP never drift. Full reference:
 | **Matching & scheduling** (read-only, engine-computed) | `listMatchingSlots` · `listCrewCandidates` · `listTechnicianAvailability` · `getTechnicianAvailability` · `getTechnicianSchedule` · `listNearbyTechnicians` |
 | **Scheduling actions** (drive the schedule) | `quoteJobRequest` · `confirmJobRequest` · `previewJobRequestMove` · `commitJobRequestMove` |
 | **Priority & emergency dispatch** (P0–P3, SLA, cascade) | `updateJobPriority` · `listEmergencyCandidates` · `previewEmergencyReschedule` · `commitEmergencyReschedule` |
+| **Webhooks** (event-callback management) | `createWebhookEndpoint` · `listWebhookEndpoints` · `getWebhookEndpoint` · `updateWebhookEndpoint` · `deleteWebhookEndpoint` · `listWebhookEventTypes` · `verifyWebhookEndpoint` · `testWebhookEndpoint` · `listWebhookEndpointDeliveries` · `listWebhookDeliveries` |
 
 Typical agent flow:
 
@@ -186,10 +188,10 @@ List tools accept `page` / `limit` and return a `meta` object (`total`,
 
 ## Idempotency
 
-Create/commit tools (`createCustomer`, `createJobRequest`, `confirmJobRequest`,
-`commitJobRequestMove`, `commitEmergencyReschedule`) accept an
-`idempotency_key` argument so retries never create a duplicate — pass the same
-value when retrying.
+Create/commit tools (`createCustomer`, `createTechnician`, `createJobRequest`,
+`confirmJobRequest`, `commitJobRequestMove`, `commitEmergencyReschedule`,
+`createWebhookEndpoint`) accept an `idempotency_key` argument so retries never
+create a duplicate — pass the same value when retrying.
 
 ## Errors
 

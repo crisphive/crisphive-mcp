@@ -1,10 +1,11 @@
 # Crisphive MCP — Tool Reference
 
-46 field-service-management tools — job booking, quoting & schedule
+56 field-service-management tools — job booking, quoting & schedule
 confirmation, appointment scheduling, crew/skill/availability matching,
 priority (P0–P3) & SLA management, emergency dispatch with cascade
 rescheduling, job moves, work-order tracking, dispatch data, CRM sync,
-service catalog, workforce + team-roster management (HR sync), territories and fleet — each wrapping one
+service catalog, workforce + team-roster management (HR sync), territories,
+fleet and webhook-endpoint management (event callbacks) — each wrapping one
 operation of the public REST `/v1` API. Tool names are the REST `operationId`s — stable, extend-only (a breaking
 change would ship as a new API version, never as a renamed tool). The
 authoritative machine-readable contract (schemas, field docs, enums) is the
@@ -116,6 +117,31 @@ Owner/Administrator group assignment is rejected for API keys
 removed or demoted (`TECHNICIAN_LAST_OWNER`). Sandbox caveat: a chsk_test_
 create still resolves the REAL person identity for the given phone/email —
 use throwaway addresses when experimenting.
+
+## Webhooks — event-callback management
+
+Provision the endpoints Crisphive POSTs events to (instead of polling), fully
+via API. The `whsec_` signing secret is returned **once** at create — store it;
+verify the `Crisphive-Signature` HMAC-SHA256 header with it. A `chsk_test_` key
+manages sandbox endpoints (they only ever receive sandbox events).
+
+| Tool | REST | Purpose |
+|---|---|---|
+| `createWebhookEndpoint` | `POST /v1/webhooks` | Register an HTTPS callback URL (+ optional `event_types`; empty = all). Sends a synchronous signed verification ping — a 2xx is born `active`, else `pending_verification`. Returns the `whsec_` secret ONCE. Supports `idempotency_key` (a retry never mints a second endpoint/secret). |
+| `listWebhookEndpoints` | `GET /v1/webhooks` | List the business's webhook endpoints (paginated; `status` filter). |
+| `getWebhookEndpoint` | `GET /v1/webhooks/{id}` | Get one endpoint (status, failure count, verified-at). |
+| `updateWebhookEndpoint` | `PATCH /v1/webhooks/{id}` | Update URL / description / event_types, or pause (`status: disabled`). Changing the URL demotes to `pending_verification`. |
+| `deleteWebhookEndpoint` | `DELETE /v1/webhooks/{id}` | Delete an endpoint (destructive — clients confirm). |
+| `listWebhookEventTypes` | `GET /v1/webhooks/event-types` | The subscribable event catalog (`job_request.*`, `customer.*`, `technician.*`). |
+| `verifyWebhookEndpoint` | `POST /v1/webhooks/{id}/verify` | Re-send the signed ping — a 2xx (re)activates the endpoint and resets its failure counter. The ONLY path back to `active` after auto-disable. Rate-limited (outbound). |
+| `testWebhookEndpoint` | `POST /v1/webhooks/{id}/test` | Send a diagnostic signed `ping` (state never changes) to confirm your receiver + signature handling. Rate-limited (outbound). |
+| `listWebhookEndpointDeliveries` | `GET /v1/webhooks/{id}/deliveries` | Delivery history for one endpoint (status, attempts, last HTTP code/error). |
+| `listWebhookDeliveries` | `GET /v1/webhooks/deliveries` | Business-wide delivery log across all endpoints (`status`/`endpoint_id` filters). |
+
+Endpoints auto-disable after 5 consecutive delivery failures (re-activate via
+`verifyWebhookEndpoint`). Deliveries are at-least-once — dedupe by the event
+`id`. Callback URLs must be public HTTPS (internal/loopback/metadata targets are
+rejected).
 
 ---
 
