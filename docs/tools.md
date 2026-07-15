@@ -1,11 +1,10 @@
 # Crisphive MCP — Tool Reference
 
-56 field-service-management tools — job booking, quoting & schedule
+43 field-service-management tools — job booking, quoting & schedule
 confirmation, appointment scheduling, crew/skill/availability matching,
 priority (P0–P3) & SLA management, emergency dispatch with cascade
 rescheduling, job moves, work-order tracking, dispatch data, CRM sync,
-service catalog, workforce + team-roster management (HR sync), territories,
-fleet and webhook-endpoint management (event callbacks) — each wrapping one
+service catalog, workforce + team-roster management (HR sync), territories and fleet — each wrapping one
 operation of the public REST `/v1` API. Tool names are the REST `operationId`s — stable, extend-only (a breaking
 change would ship as a new API version, never as a renamed tool). The
 authoritative machine-readable contract (schemas, field docs, enums) is the
@@ -43,9 +42,7 @@ webhooks).
 |---|---|---|
 | `listMatchingSlots` | `GET /v1/job-requests/{id}/time-segments` | Matching time slots for a QUOTED job: the bookable arrival-window grid, each slot listing the technicians actually available then (skills, weekly availability, existing schedule, time off and travel all checked) with per-technician match scores. Optional `step_minutes` (5–240) overrides the slot width. |
 | `listCrewCandidates` | `GET /v1/job-requests/{id}/crew-candidates` | Ranked feasible technicians for a job — per-slot skill matching, score breakdown (distance, travel, matched skills) and the exact on-site session plan each candidate would work. `include_buddies`, `include_vehicle`, `force_lead_id` (check one specific technician; error if not feasible). NOT a raw roster — that's `listTechnicians`. |
-| `listTechnicianAvailability` | `GET /v1/technician-availability` | The team's recurring weekly working hours: shift/break rows per `week_day` (0=Monday), bounded by `start_minute`/`end_minute` in minutes since midnight. The schedule template the matching engine checks candidates against. |
-| `getTechnicianAvailability` | `GET /v1/technicians/{id}/availability` | One technician's weekly working hours — answers "when does this technician work?". |
-| `getTechnicianSchedule` | `GET /v1/technicians/{id}/schedule` | The technician's REAL occupancy over a date range (`from`/`to`, max 31 days): job sessions (solo/lead and crew lanes) + approved time-off blocks. Combine with the weekly hours above for the full availability picture. |
+| `getTechnicianSchedule` | `GET /v1/technicians/{id}/schedule` | The technician's REAL occupancy over a date range (`from`/`to`, max 31 days): job sessions (solo/lead and crew lanes) + approved time-off blocks — when the technician is actually busy vs free. |
 | `listNearbyTechnicians` | `GET /v1/technicians/nearby` | Job-less location query: who could serve a hypothetical visit at (`lat`,`lng`) starting `at` for `duration_minutes` — engine-checked hours/schedule/time-off/territories/skills, ranked nearest-arrival first (ETA from static start locations). Use before creating a booking. |
 
 ## Scheduling actions — drive the schedule via API
@@ -100,7 +97,7 @@ areas, so keep them in sync.
 
 | Tool | REST operation | Description |
 |---|---|---|
-| `createTechnician` | `POST /v1/technicians` | Add a team member. Requires `business_group_id` (discover via `listBusinessGroups`) and at least one of `phone`/`email`. Optional `assignment_tier` (lead/buddy/float), day-start location, inline `buddy_ids`/`lead_ids`/`service_area_ids`. Supports `idempotency_key`. |
+| `createTechnician` | `POST /v1/technicians` | Add a team member. Requires `business_group_id` (the role group's ID, from the business dashboard — Settings → Permissions) and at least one of `phone`/`email`. Optional `assignment_tier` (lead/buddy/float), day-start location, inline `buddy_ids`/`lead_ids`/`service_area_ids`. Supports `idempotency_key`. |
 | `updateTechnician` | `PUT /v1/technicians/{id}` | Full-replace profile update (send every field; relations have their own tools). |
 | `deleteTechnician` | `DELETE /v1/technicians/{id}` | Remove from the roster (soft; buddy/vehicle references are scrubbed automatically). |
 | `replaceTechnicianBuddies` | `PUT /v1/technicians/{id}/buddies` | Set a lead's buddy list (self-buddy rejected). |
@@ -109,7 +106,6 @@ areas, so keep them in sync.
 | `replaceTechnicianServiceAreas` | `PUT /v1/technicians/{id}/service-areas` | Set the technician's service-area assignments (discover via `listServiceAreas`). |
 | `replaceTechnicianSkills` | `PATCH /v1/technicians/{id}/skills` | Set the technician's skill set (discover via `listSkills`). |
 | `listTechnicianSkills` | `GET /v1/technicians/{id}/skills` | Read a technician's assigned skills (paginated). |
-| `listBusinessGroups` | `GET /v1/permission/groups` | The business's role groups — the `business_group_id` reference for create/update (needs the `permission_view` scope on restricted keys; full-access keys always pass). |
 
 Suspension/status changes and role-group AUTHORING stay dashboard-only.
 Owner/Administrator group assignment is rejected for API keys
@@ -117,31 +113,6 @@ Owner/Administrator group assignment is rejected for API keys
 removed or demoted (`TECHNICIAN_LAST_OWNER`). Sandbox caveat: a chsk_test_
 create still resolves the REAL person identity for the given phone/email —
 use throwaway addresses when experimenting.
-
-## Webhooks — event-callback management
-
-Provision the endpoints Crisphive POSTs events to (instead of polling), fully
-via API. The `whsec_` signing secret is returned **once** at create — store it;
-verify the `Crisphive-Signature` HMAC-SHA256 header with it. A `chsk_test_` key
-manages sandbox endpoints (they only ever receive sandbox events).
-
-| Tool | REST | Purpose |
-|---|---|---|
-| `createWebhookEndpoint` | `POST /v1/webhooks` | Register an HTTPS callback URL (+ optional `event_types`; empty = all). Sends a synchronous signed verification ping — a 2xx is born `active`, else `pending_verification`. Returns the `whsec_` secret ONCE. Supports `idempotency_key` (a retry never mints a second endpoint/secret). |
-| `listWebhookEndpoints` | `GET /v1/webhooks` | List the business's webhook endpoints (paginated; `status` filter). |
-| `getWebhookEndpoint` | `GET /v1/webhooks/{id}` | Get one endpoint (status, failure count, verified-at). |
-| `updateWebhookEndpoint` | `PATCH /v1/webhooks/{id}` | Update URL / description / event_types, or pause (`status: disabled`). Changing the URL demotes to `pending_verification`. |
-| `deleteWebhookEndpoint` | `DELETE /v1/webhooks/{id}` | Delete an endpoint (destructive — clients confirm). |
-| `listWebhookEventTypes` | `GET /v1/webhooks/event-types` | The subscribable event catalog (`job_request.*`, `customer.*`, `technician.*`). |
-| `verifyWebhookEndpoint` | `POST /v1/webhooks/{id}/verify` | Re-send the signed ping — a 2xx (re)activates the endpoint and resets its failure counter. The ONLY path back to `active` after auto-disable. Rate-limited (outbound). |
-| `testWebhookEndpoint` | `POST /v1/webhooks/{id}/test` | Send a diagnostic signed `ping` (state never changes) to confirm your receiver + signature handling. Rate-limited (outbound). |
-| `listWebhookEndpointDeliveries` | `GET /v1/webhooks/{id}/deliveries` | Delivery history for one endpoint (status, attempts, last HTTP code/error). |
-| `listWebhookDeliveries` | `GET /v1/webhooks/deliveries` | Business-wide delivery log across all endpoints (`status`/`endpoint_id` filters). |
-
-Endpoints auto-disable after 5 consecutive delivery failures (re-activate via
-`verifyWebhookEndpoint`). Deliveries are at-least-once — dedupe by the event
-`id`. Callback URLs must be public HTTPS (internal/loopback/metadata targets are
-rejected).
 
 ---
 
