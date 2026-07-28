@@ -1,0 +1,48 @@
+{
+  "name": "@crisphive/mcp",
+  "version": "2.0.0",
+  "mcpName": "com.crisphive/mcp",
+  "description": "Crisphive MCP server (stdio) — agentic scheduling & booking for field service. 43 tools over the Crisphive Developer API /v1.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "crisphive-mcp": "dist/index.js"
+  },
+  "main": "dist/index.js",
+  "files": [
+    "dist",
+    "src/tools.generated.json",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "generate": "node scripts/generate.mjs",
+    "build": "tsc && cp src/tools.generated.json dist/ && chmod +x dist/index.js",
+    "test": "npm run build && node --test test/",
+    "prepublishOnly": "npm run build"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/crisphive/crisphive-mcp.git"
+  },
+  "homepage": "https://docs.crisphive.com/mcp",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "crisphive",
+    "scheduling",
+    "field-service",
+    "booking",
+    "dispatch"
+  ],
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0",
+    "@types/node": "^20.0.0"
+  }
+}

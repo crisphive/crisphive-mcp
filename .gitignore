@@ -6,3 +6,11 @@
 crisphive-registry.pem
 .env
 .env.*
+
+# Node build artifacts (local stdio server package)
+node_modules/
+dist/
+*.tgz
+# Local snapshot of the /v1 spec used during generation — never committed;
+# CI regenerates from the live spec and diffs src/tools.generated.json.
+openapi.v1.json
