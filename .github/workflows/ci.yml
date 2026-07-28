@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci
+      - run: npm test
+
+  # The tool set is DERIVED from the live /v1 OpenAPI spec. If the API surface
+  # changed and src/tools.generated.json was not regenerated, this job fails —
+  # the same no-drift guarantee the hosted MCP endpoint has.
+  drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: node scripts/generate.mjs
+      - run: git diff --exit-code src/tools.generated.json

@@ -1,0 +1,2376 @@
+{
+  "basePath": "/v1",
+  "tools": [
+    {
+      "name": "commitEmergencyReschedule",
+      "title": "Commit emergency insert + cascade reschedule",
+      "description": "Commit emergency insert + cascade reschedule\n\nApplies the cascade previewed by /emergency/preview: assigns the emergency job to the technician and pushes the displaced jobs back (or, with `displacement_mode=reassign`, re-staffs them onto their previewed alternates first), atomically. Supports Idempotency-Key. The server recomputes the plan under a lock and fences each job on its status_version — if anything changed since the preview it returns 409 EMERGENCY_RESCHEDULE_PLAN_DRIFTED (re-preview). Same body as preview + optional `emergency_expected_version`. Isolated feature (see EMERGENCY_RESCHEDULE_DESIGN.md).\n409 NEXT STEPS: EMERGENCY_RESCHEDULE_PLAN_DRIFTED — the schedule changed between your preview and this commit (another booking/move won a lane): call /preview again, show the fresh plan, then commit. EMERGENCY_RESCHEDULE_SLOT_OCCUPIED — landing window blocked by an immovable anchor (P0/crew/multi-day): another tech or time. Other codes — same remedies as /candidates.",
+      "method": "POST",
+      "path": "/job-requests/emergency/commit",
+      "pathParams": [],
+      "queryParams": [],
+      "headerParams": [
+        {
+          "arg": "idempotency_key",
+          "header": "Idempotency-Key"
+        }
+      ],
+      "bodyParams": [
+        "displacement_mode",
+        "emergency_expected_version",
+        "emergency_job_id",
+        "expected_move_ids",
+        "mode",
+        "start_at",
+        "technician_id"
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "idempotency_key": {
+            "type": "string",
+            "description": "Unique key making retries safe: a repeat send with the same key replays the original response (header Idempotent-Replayed: true) instead of re-running the operation. Reusing a key with a different body returns 422 IDEMPOTENCY_KEY_REUSE. (sent as the Idempotency-Key header)"
+          },
+          "displacement_mode": {
+            "description": "Fate of displaced jobs: reschedule (default) or reassign — must match the preview.",
+            "enum": [
+              "reschedule",
+              "reassign"
+            ],
+            "type": "string"
+          },
+          "emergency_expected_version": {
+            "description": "Optimistic-lock fence from the previewed job (0 = fence on the server-read version).",
+            "type": "integer"
+          },
+          "emergency_job_id": {
+            "description": "ID of the P0 job to insert.",
+            "format": "uuid",
+            "type": "string"
+          },
+          "expected_move_ids": {
+            "description": "ExpectedMoveIDs — the displaced job IDs the preview returned (echo BOTH\ndata.days[].moves[].job_id AND data.reassignments[].job_id). RECOMMENDED:\nif the recomputed cascade would touch a different set (a job booked onto\nthe lane since the preview), the commit is rejected with\nEMERGENCY_RESCHEDULE_PLAN_DRIFTED instead of displacing a job the\ncoordinator never saw. Omit to opt out.",
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "mode": {
+            "description": "Cascade mode: overtime | next_day (must match the preview).",
+            "enum": [
+              "overtime",
+              "next_day"
+            ],
+            "type": "string"
+          },
+          "start_at": {
+            "description": "Desired start — business-local naive datetime, no offset. Must be in the future and match the preview.",
+            "example": "2030-06-14T09:00:00",
+            "type": "string"
+          },
+          "technician_id": {
+            "description": "Target technician (must belong to the business).",
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "emergency_job_id",
+          "mode",
+          "start_at",
+          "technician_id"
+        ]
+      }
+    },
+    {
+      "name": "commitJobRequestMove",
+      "title": "Commit a schedule-board job move",
+      "description": "Commit a schedule-board job move\n\nApplies the move previewed by /move/preview: places the job on the technician at the new time and pushes the displaced jobs back, atomically (per-tech advisory lock; the server recomputes the plan and fences each job on its status_version — drift since the preview returns 409 SCHEDULE_MOVE_PLAN_DRIFTED, re-preview). Same body as preview + optional `expected_version`. See SCHEDULE_BOARD_DESIGN.md.\n409 NEXT STEPS: SCHEDULE_MOVE_PLAN_DRIFTED — the schedule changed since your preview (or expected_move_ids no longer match): re-preview, show the fresh plan, commit again. All other codes — same remedies as /move/preview.",
+      "method": "POST",
+      "path": "/job-requests/{id}/move/commit",
+      "pathParams": [
+        "id"
+      ],
+      "queryParams": [],
+      "headerParams": [
+        {
+          "arg": "idempotency_key",
+          "header": "Idempotency-Key"
+        }
+      ],
+      "bodyParams": [
+        "expected_member_ids",
+        "expected_move_ids",
+        "expected_version",
+        "mode",
+        "start_at",
+        "technician_id"
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Job request ID (UUID or short_code)"
+          },
+          "idempotency_key": {
+            "type": "string",
+            "description": "Unique key making retries safe: a repeat send with the same key replays the original response (header Idempotent-Replayed: true) instead of re-running the operation. Reusing a key with a different body returns 422 IDEMPOTENCY_KEY_REUSE. (sent as the Idempotency-Key header)"
+          },
+          "expected_member_ids": {
+            "description": "ExpectedMemberIDs — crew moves only: the FULL member set the preview\nstaffed (echo data.members[].technician_id). If the commit's re-plan\nwould staff a DIFFERENT set (a previewed replacement got booked in the\nmeantime), the commit is rejected with SCHEDULE_MOVE_PLAN_DRIFTED —\ncrew swaps are never approved unseen. Omit to opt out.",
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "expected_move_ids": {
+            "description": "ExpectedMoveIDs — the displaced job IDs the preview returned (echo\ndata.days[].moves[].job_id). Optional but RECOMMENDED: if the schedule\nchanged so the commit would push a different set (e.g. a job booked onto\nthe target tech since the preview), the commit is rejected with\nSCHEDULE_MOVE_PLAN_DRIFTED instead of silently pushing an unseen job.",
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "expected_version": {
+            "description": "ExpectedVersion — the moved job's status_version from the preview\n(0 = fence on the fresh plan-read value; negatives rejected).",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "mode": {
+            "description": "Cascade mode: overtime | next_day (must match the preview).",
+            "enum": [
+              "overtime",
+              "next_day"
+            ],
+            "type": "string"
+          },
+          "start_at": {
+            "description": "New start — business-local naive datetime, no offset. Must match the preview and be in the future.",
+            "example": "2030-06-14T09:00:00",
+            "type": "string"
+          },
+          "technician_id": {
+            "description": "Target technician (must match the preview).",
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "mode",
+          "start_at",
+          "technician_id"
+        ]
+      }
+    },
+    {
+      "name": "confirmJobRequest",
+      "title": "Confirm a booking on behalf of the customer",
+      "description": "Confirm a booking on behalf of the customer\n\nFires the customer-actor `confirm_booking` action from the BUSINESS surface (audited as business_on_behalf). Two uses: (1) LIVE — staff confirm a slot for a customer who booked by phone; (2) SANDBOX — the customer magic-token surface is live-only (a sandbox job's link can never reach a real customer), so this is the ONLY way to drive a sandbox test job past booking (book → quote → confirm → assign → complete). Body carries the customer-chosen scheduled_at (business-local naive datetime).\nDECISION TABLE — every 409 this endpoint returns, and the correct NEXT STEP (branch on error_code, never on the HTTP status):\n• JOB_REQUEST_STAGE_CONFLICT — the job changed since you read it (NOTE: every FAILED confirm attempt also bumps status_version by design). Next: re-GET the job, retry with the fresh status_version.\n• JOB_REQUEST_ACTION_NOT_PENDING — the job is no longer at the confirm step (usually: already confirmed). Next: re-GET and show current status; do not retry.\n• JOB_REQUEST_NO_TECHNICIAN_AVAILABLE — the TIME is infeasible for everyone (outside working hours / the customer window, or nobody qualifies). Next: pick another time via booking-windows / time-segments. NOT an emergency case — displacement cannot conjure capacity.\n• JOB_REQUEST_TECH_INFEASIBLE — the FORCED technician can never take the job then; `data.reason` says why: cannot_arrive_in_time (commute/shift-start — `data.earliest_feasible_at` (RFC3339 UTC) is the first same-day time they CAN be on site → offer it) | missing_required_skills | not_available_today | not_lead_tier. Next: keep the tech and reschedule to earliest_feasible_at+, OR keep the time and drop technician_id (auto-pick) / choose another tech from time-segments. NOT an emergency case.\n• JOB_REQUEST_P0_REQUIRES_DISPLACEMENT — the ONLY code that routes to the EMERGENCY flow: the job is P0, the tech qualifies, but the lane is genuinely occupied. Next: POST emergency/candidates → preview → commit (the commit auto-confirms). Caveat: if the occupying jobs are themselves P0 the preview will reject with EMERGENCY_RESCHEDULE_SLOT_OCCUPIED (P0 never displaces P0) — then pick another tech/time.",
+      "method": "POST",
+      "path": "/job-requests/{id}/confirm",
+      "pathParams": [
+        "id"
+      ],
+      "queryParams": [],
+      "headerParams": [
+        {
+          "arg": "idempotency_key",
+          "header": "Idempotency-Key"
+        }
+      ],
+      "bodyParams": [
+        "arrival_window_minutes",
+        "scheduled_at",
+        "status_version",
+        "technician_id"
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Job request ID"
+          },
+          "idempotency_key": {
+            "type": "string",
+            "description": "Unique key making retries safe: a repeat send with the same key replays the original response (header Idempotent-Replayed: true) instead of re-running the operation. Reusing a key with a different body returns 422 IDEMPOTENCY_KEY_REUSE. (sent as the Idempotency-Key header)"
+          },
+          "arrival_window_minutes": {
+            "description": "ArrivalWindowMinutes = width (phút) của arrival-window ô khách bấm ở\nslot-picker (chính là time_slot_step_minutes, mặc định 30). Persist để\npost-confirm detail render lại đúng window. Optional; bounds ([5, 240],\nkhớp slot-picker step) validate ở usecase — single authority, một error\ncode (JOB_REQUEST_INVALID_INPUT).",
+            "type": "integer"
+          },
+          "scheduled_at": {
+            "description": "Chosen start time — business-local naive datetime, no offset (the business_time.datetime value from the time-segments picker). The server converts to UTC using the job's business timezone.",
+            "example": "2030-06-14T09:00:00",
+            "type": "string"
+          },
+          "status_version": {
+            "description": "Optimistic-lock fence: the status_version from your last read. Omitted/0 = fence on the row's current version (no race protection).",
+            "example": 2,
+            "type": "integer"
+          },
+          "technician_id": {
+            "description": "TechnicianID (BUSINESS confirm only — ignored on the customer surface):\nforce-assign the job to this technician instead of the ranked auto-pick.\nRanking is bypassed; feasibility (hours/time-off/geo/skills), the\nTierLead rule and the double-booking guard still apply — an infeasible\nforced tech rejects the confirm (P0 gets the displacement hint).",
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "createCustomer",
+      "title": "Create a customer",
+      "description": "Create a customer\n\nCreates a customer record — the client/account profile a job request (work order) is booked against; use it to import or sync customers from your own CRM, website lead form or intake flow. Address (street, city, postal_code, ...) and coordinates (latitude/longitude) live under the nested `address` object. service_area_id must be a valid service area UUID belonging to this business.",
+      "method": "POST",
+      "path": "/customers",
+      "pathParams": [],
+      "queryParams": [],
+      "headerParams": [
+        {
+          "arg": "idempotency_key",
+          "header": "Idempotency-Key"
+        }
+      ],
+      "bodyParams": [
+        "address",
+        "email",
+        "full_name",
+        "phone",
+        "preferred_technician_id",
+        "service_area_id",
+        "sms_opt_in",
+        "tier",
+        "uid"
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "idempotency_key": {
+            "type": "string",
+            "description": "Unique key making retries safe: a repeat send with the same key replays the original response (header Idempotent-Replayed: true) instead of re-running the operation. Reusing a key with a different body returns 422 IDEMPOTENCY_KEY_REUSE. (sent as the Idempotency-Key header)"
+          },
+          "address": {
+            "allOf": [
+              {
+                "properties": {
+                  "city": {
+                    "description": "City / locality. Max 100 chars.",
+                    "maxLength": 100,
+                    "type": "string"
+                  },
+                  "country": {
+                    "description": "Country (free-form or ISO code). Max 100 chars.",
+                    "maxLength": 100,
+                    "type": "string"
+                  },
+                  "formatted": {
+                    "description": "Human-readable single-line address; when set it wins over the discrete parts for display. Max 500 chars.",
+                    "maxLength": 500,
+                    "type": "string"
+                  },
+                  "latitude": {
+                    "description": "Geographic latitude in decimal degrees (-90..90). Omit if unknown.",
+                    "maximum": 90,
+                    "minimum": -90,
+                    "type": "number"
+                  },
+                  "line": {
+                    "description": "Street address, line 1 (e.g. \"123 Main St\"). Max 255 chars.",
+                    "maxLength": 255,
+                    "type": "string"
+                  },
+                  "line2": {
+                    "description": "Street address, line 2 (apartment, suite, unit). Max 255 chars.",
+                    "maxLength": 255,
+                    "type": "string"
+                  },
+                  "longitude": {
+                    "description": "Geographic longitude in decimal degrees (-180..180). Omit if unknown.",
+                    "maximum": 180,
+                    "minimum": -180,
+                    "type": "number"
+                  },
+                  "postal_code": {
+                    "description": "Postal / ZIP code. Max 32 chars.",
+                    "maxLength": 32,
+                    "type": "string"
+                  },
+                  "state": {
+                    "description": "State / province / region. Max 100 chars.",
+                    "maxLength": 100,
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            ],
+            "description": "Postal address and coordinates."
+          },
+          "email": {
+            "description": "Email address. Optional, but at least one of phone/email is required.",
+            "type": "string"
+          },
+          "full_name": {
+            "description": "Customer's full name. Required; max 255 chars.",
+            "maxLength": 255,
+            "type": "string"
+          },
+          "phone": {
+            "description": "Phone number. Optional, but at least one of phone/email is required; 10–20 chars.",
+            "maxLength": 20,
+            "type": "string"
+          },
+          "preferred_technician_id": {
+            "description": "UUID of the technician this customer prefers. Must belong to this business.",
+            "format": "uuid",
+            "type": "string"
+          },
+          "service_area_id": {
+            "description": "UUID of the service area for this customer. Must belong to this business.",
+            "format": "uuid",
+            "type": "string"
+          },
+          "sms_opt_in": {
+            "description": "SMS consent: set true ONLY when the customer explicitly agreed to receive\nSMS (e.g. ticked a non-pre-checked consent box, or gave verbal/written\nconsent you keep a record of). SMS notifications are suppressed while false.",
+            "type": "boolean"
+          },
+          "tier": {
+            "description": "Loyalty tier. Defaults to \"regular\" if omitted.",
+            "enum": [
+              "regular",
+              "vip"
+            ],
+            "type": "string"
+          },
+          "uid": {
+            "description": "Your external reference for this customer (your own system's ID). Optional; max 32 chars.",
+            "maxLength": 32,
+            "type": "string"
+          }
+        },
+        "required": [
+          "full_name"
+        ]
+      }
+    },
+    {
+      "name": "createJobRequest",
+      "title": "Create a job request",
+      "description": "Create a job request\n\nBooks a field-service job — the work order that enters the dispatch & scheduling pipeline. Send the customer's UUID plus requested `job_dates` (date + morning/afternoon/evening periods, ideally offered from GET /job-requests/booking-windows), optional `job_type_id` (service catalog), `skill_ids` (required technician qualifications) and a free-text description. Quoting, technician/crew assignment and completion then advance the work order through the business's workflow.",
+      "method": "POST",
+      "path": "/job-requests",
+      "pathParams": [],
+      "queryParams": [],
+      "headerParams": [
+        {
+          "arg": "x_timezone",
+          "header": "X-Timezone"
+        },
+        {
+          "arg": "idempotency_key",
+          "header": "Idempotency-Key"
+        }
+      ],
+      "bodyParams": [
+        "customer_id",
+        "description",
+        "job_dates",
+        "job_type_id",
+        "priority",
+        "skill_ids",
+        "sla_deadline"
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "x_timezone": {
+            "type": "string",
+            "description": "Customer IANA timezone (sent as the X-Timezone header)"
+          },
+          "idempotency_key": {
+            "type": "string",
+            "description": "Unique key making retries safe: a repeat send with the same key returns the original booking instead of creating a duplicate (sent as the Idempotency-Key header)"
+          },
+          "customer_id": {
+            "description": "UUID of an existing customer of this business to book the job for. Required.",
+            "format": "uuid",
+            "type": "string"
+          },
+          "description": {
+            "description": "Free-text description of the work requested. Optional; max 2000 chars.",
+            "maxLength": 2000,
+            "type": "string"
+          },
+          "job_dates": {
+            "description": "Requested date(s) + period(s) the customer wants the job. At least one, up to 12.",
+            "items": {
+              "properties": {
+                "date": {
+                  "description": "Requested calendar day (YYYY-MM-DD), customer-local. Required.",
+                  "example": "2030-06-03",
+                  "format": "date",
+                  "type": "string"
+                },
+                "periods": {
+                  "description": "One or more time-of-day periods requested on this date. At least one, up to 3.",
+                  "items": {
+                    "properties": {
+                      "business_view": {
+                        "description": "Business-local time ranges the period maps to (echoed from booking-windows). Optional.",
+                        "items": {
+                          "properties": {
+                            "date": {
+                              "description": "Calendar day (YYYY-MM-DD), business-local.",
+                              "example": "2030-06-03",
+                              "format": "date",
+                              "type": "string"
+                            },
+                            "end_minute": {
+                              "description": "Range end as minutes since midnight (0–1440), business-local.",
+                              "type": "integer"
+                            },
+                            "period": {
+                              "description": "Time-of-day period this range belongs to.",
+                              "enum": [
+                                "morning",
+                                "afternoon",
+                                "evening"
+                              ],
+                              "type": "string"
+                            },
+                            "start_minute": {
+                              "description": "Range start as minutes since midnight (0–1440), business-local.",
+                              "type": "integer"
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "type": "array"
+                      },
+                      "period": {
+                        "description": "Time-of-day period the customer requested. Required.",
+                        "enum": [
+                          "morning",
+                          "afternoon",
+                          "evening"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "period"
+                    ],
+                    "type": "object"
+                  },
+                  "maxItems": 3,
+                  "minItems": 1,
+                  "type": "array"
+                }
+              },
+              "required": [
+                "date",
+                "periods"
+              ],
+              "type": "object"
+            },
+            "maxItems": 12,
+            "minItems": 1,
+            "type": "array"
+          },
+          "job_type_id": {
+            "description": "UUID of the job type to classify this job. Optional; null leaves the job unclassified.",
+            "format": "uuid",
+            "type": "string"
+          },
+          "priority": {
+            "description": "Scheduling priority. Optional; omitted bookings receive the business's\ndefault_priority setting (assignment settings, default p2). p0=emergency\n(interrupt-driven insert), p1=top (displaced only by p0), p2=standard,\np3=deferrable (first candidate for displacement).",
+            "enum": [
+              "p0",
+              "p1",
+              "p2",
+              "p3"
+            ],
+            "example": "p1",
+            "type": "string"
+          },
+          "skill_ids": {
+            "description": "UUIDs of the skills the customer desires for this job. Optional; up to 20.",
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 20,
+            "type": "array"
+          },
+          "sla_deadline": {
+            "description": "SLA deadline (business-local naive datetime, e.g. \"2030-06-14T17:00:00\").\nOptional; ONLY valid together with priority=p1 — arms the auto-escalation\nclock (the job escalates to p0 as breach risk crosses the business's\nsafety buffer). Must be in the future.",
+            "example": "2030-06-14T17:00:00",
+            "type": "string"
+          }
+        },
+        "required": [
+          "customer_id",
+          "job_dates"
+        ]
+      }
+    },
+    {
+      "name": "createTechnician",
+      "title": "Add a technician",
+      "description": "Add a technician\n\nCreates a technician membership under the current business. If the phone/email matches an existing user, their account is linked. Otherwise a new user identity is created. Either way the membership starts active. The new member is notified (live mode only, best-effort): an email when `email` is supplied, an SMS when `phone` is supplied, both when both — informational only, no activation step (login stays passwordless: magic link / OTP). If the technician was previously removed (deactive) they are reactivated instead (also notified). Owner/Administrator groups cannot be assigned via API key, and not at all in sandbox mode.\n\nOptional relations (all validated; any missing id → 404 TECHNICIAN_NOT_FOUND with `missing_ids`): `buddy_ids` sets this technician's buddy list (use when creating a lead); `lead_ids` adds this technician as a buddy of each named lead (use when creating a buddy — the buddy-side way to attach the same lead↔buddy relation); `service_area_ids` assigns the technician to those service areas.\n\n`start_location_type=office` snapshots the business address + coordinates into the technician at create time; `address`, `start_location_lat`, `start_location_long` in the body are ignored. Requires the business to have coordinates set (else 400 BUSINESS_LOCATION_MISSING). `start_location_type=home` (or empty) uses the address + coordinates from the body.",
+      "method": "POST",
+      "path": "/technicians",
+      "pathParams": [],
+      "queryParams": [],
+      "headerParams": [
+        {
+          "arg": "idempotency_key",
+          "header": "Idempotency-Key"
+        }
+      ],
+      "bodyParams": [
+        "address",
+        "assignment_tier",
+        "buddy_ids",
+        "business_group_id",
+        "email",
+        "full_name",
+        "job_title",
+        "join_date",
+        "lead_ids",
+        "phone",
+        "service_area_ids",
+        "start_location_lat",
+        "start_location_long",
+        "start_location_type"
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "idempotency_key": {
+            "type": "string",
+            "description": "Unique key making retries safe: a repeat send with the same key replays the original response (header Idempotent-Replayed: true) instead of re-running the operation. Reusing a key with a different body returns 422 IDEMPOTENCY_KEY_REUSE. (sent as the Idempotency-Key header)"
+          },
+          "address": {
+            "allOf": [
+              {
+                "properties": {
+                  "city": {
+                    "description": "City / locality.",
+                    "maxLength": 100,
+                    "type": "string"
+                  },
+                  "country": {
+                    "description": "Country (free-form or ISO code).",
+                    "maxLength": 100,
+                    "type": "string"
+                  },
+                  "formatted": {
+                    "description": "Full display string; when set it wins over the discrete parts for display.",
+                    "maxLength": 500,
+                    "type": "string"
+                  },
+                  "line": {
+                    "description": "Street line 1.",
+                    "maxLength": 255,
+                    "type": "string"
+                  },
+                  "line2": {
+                    "description": "Street line 2 (unit, suite).",
+                    "maxLength": 255,
+                    "type": "string"
+                  },
+                  "postal_code": {
+                    "description": "Postal / ZIP code.",
+                    "maxLength": 32,
+                    "type": "string"
+                  },
+                  "state": {
+                    "description": "State / province / region.",
+                    "maxLength": 100,
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            ],
+            "description": "Home address (the day-start point when start_location_type=home)."
+          },
+          "assignment_tier": {
+            "description": "Crew tier the matching engine assigns by: lead (can head a job), buddy\n(crew helper), float (excluded from auto crew-assign).",
+            "enum": [
+              "lead",
+              "buddy",
+              "float"
+            ],
+            "type": "string"
+          },
+          "buddy_ids": {
+            "description": "Buddies of this technician (set when creating a lead). Optional; max 50 technician ids.",
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 50,
+            "type": "array"
+          },
+          "business_group_id": {
+            "description": "Role group for the new member. Discover IDs via GET /permission/groups\n(Owner/Administrator groups are rejected in sandbox mode).",
+            "format": "uuid",
+            "type": "string"
+          },
+          "email": {
+            "description": "Email address. At least one of phone/email is required (identity resolution key).",
+            "maxLength": 255,
+            "type": "string"
+          },
+          "full_name": {
+            "description": "The person's full display name. Required; max 255 chars.",
+            "maxLength": 255,
+            "type": "string"
+          },
+          "job_title": {
+            "description": "Display title (e.g. \"Senior HVAC Technician\").",
+            "maxLength": 255,
+            "type": "string"
+          },
+          "join_date": {
+            "description": "First working day (YYYY-MM-DD).",
+            "format": "date",
+            "type": "string"
+          },
+          "lead_ids": {
+            "description": "Leads this technician is a buddy of (set when creating a buddy; the\ntechnician is appended to each lead's buddy list). Optional; max 50 technician ids.",
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 50,
+            "type": "array"
+          },
+          "phone": {
+            "description": "At least one of phone/email is required (identity resolution key).",
+            "maxLength": 50,
+            "type": "string"
+          },
+          "service_area_ids": {
+            "description": "Service areas to assign the technician to. Optional; max 50. Discover via GET /service-areas.",
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 50,
+            "type": "array"
+          },
+          "start_location_lat": {
+            "description": "Explicit day-start latitude in decimal degrees (-90..90); when set it wins over the address geocode.",
+            "maximum": 90,
+            "minimum": -90,
+            "type": "number"
+          },
+          "start_location_long": {
+            "description": "Explicit day-start longitude in decimal degrees (-180..180); when set it wins over the address geocode.",
+            "maximum": 180,
+            "minimum": -180,
+            "type": "number"
+          },
+          "start_location_type": {
+            "description": "Where the technician starts their day: home (their address) or office\n(the business location). Drives the engine's travel estimates.",
+            "enum": [
+              "home",
+              "office"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "business_group_id",
+          "full_name"
+        ]
+      }
+    },
+    {
+      "name": "deleteCustomer",
+      "title": "Delete a customer",
+      "description": "Delete a customer\n\nSoft-deletes a customer record, removing it from the active customer directory; existing bookings keep their customer snapshot.",
+      "method": "DELETE",
+      "path": "/customers/{id}",
+      "pathParams": [
+        "id"
+      ],
+      "queryParams": [],
+      "headerParams": [],
+      "bodyParams": [],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Customer ID"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "deleteTechnician",
+      "title": "Remove a technician",
+      "description": "Remove a technician\n\nSoft-removes a technician from the business by setting status to deactive",
+      "method": "DELETE",
+      "path": "/technicians/{id}",
+      "pathParams": [
+        "id"
+      ],
+      "queryParams": [],
+      "headerParams": [],
+      "bodyParams": [],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Technician ID"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "getCustomer",
+      "title": "Get a customer",
+      "description": "Get a customer\n\nReturns the full customer record: profile, contact details, tier and lifetime spending summary — a 360° client view for support, upsell or CRM enrichment. contact.preferred_technician includes {id, name}. contact.service_area includes {id, name}. contact.address.latitude / contact.address.longitude are null if no coordinates saved.",
+      "method": "GET",
+      "path": "/customers/{id}",
+      "pathParams": [
+        "id"
+      ],
+      "queryParams": [],
+      "headerParams": [],
+      "bodyParams": [],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Customer ID (UUID)"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "getJobRequest",
+      "title": "Get a job request",
+      "description": "Get a job request\n\nReturns the full work order: current workflow status, quoted duration, confirmed schedule, customer contact snapshot and the assigned technician / crew — everything a dispatcher or an external field-service system needs to track one job.",
+      "method": "GET",
+      "path": "/job-requests/{id}",
+      "pathParams": [
+        "id"
+      ],
+      "queryParams": [],
+      "headerParams": [],
+      "bodyParams": [],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Job request ID (UUID or short_code)"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "getJobRequestTimeline",
+      "title": "Job timeline",
+      "description": "Job timeline\n\nPer-status progress of a job's lifecycle (e.g. booked → confirmed → on the way → arrived → completed, following the business's configured workflow) — render it as a job-tracking timeline. Each status carries its state (completed | current | upcoming), when the job entered it, and the actions fired within it. entered_at may be null for upcoming steps and for older jobs predating the backfill.",
+      "method": "GET",
+      "path": "/job-requests/{id}/timeline",
+      "pathParams": [
+        "id"
+      ],
+      "queryParams": [],
+      "headerParams": [],
+      "bodyParams": [],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Job request ID (UUID or short_code)"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "getJobType",
+      "title": "Get a job type",
+      "description": "Get a job type\n\nReturns one entry of the business's service catalog (job/work-order type) with its localized display name — e.g. an HVAC tune-up, drain cleaning or electrical inspection offering.",
+      "method": "GET",
+      "path": "/job-types/{id}",
+      "pathParams": [
+        "id"
+      ],
+      "queryParams": [],
+      "headerParams": [],
+      "bodyParams": [],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Job Type ID"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "getServiceArea",
+      "title": "Get a service area",
+      "description": "Get a service area\n\nReturns one service area — a geographic coverage zone (service territory) the business operates in, with its name and geometry metadata. Reference its UUID as `service_area_id` on customer records for territory-aware dispatch.",
+      "method": "GET",
+      "path": "/service-areas/{id}",
+      "pathParams": [
+        "id"
+      ],
+      "queryParams": [],
+      "headerParams": [],
+      "bodyParams": [],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Service Area ID"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "getTechnician",
+      "title": "Get a technician",
+      "description": "Get a technician\n\nReturns one technician's full profile: contact info, employment status, assignment tier, skills/qualifications, buddy (crew) relations and assigned vehicles — the dispatch-ready view of a field worker.",
+      "method": "GET",
+      "path": "/technicians/{id}",
+      "pathParams": [
+        "id"
+      ],
+      "queryParams": [],
+      "headerParams": [],
+      "bodyParams": [],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Technician ID"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "getTechnicianSchedule",
+      "title": "One technician's real schedule (sessions + time off)",
+      "description": "One technician's real schedule (sessions + time off)\n\nThe technician's ACTUAL occupancy over a date range: every job session on their lane (solo/lead and crew) plus approved time-off blocks. Weekly recurring working hours come from the technician-availability endpoints — combine both for the full availability picture (\"get crew availability\"). from/to are business-local dates (YYYY-MM-DD, inclusive); omitted = today .. +7 days; range max 31 days.",
+      "method": "GET",
+      "path": "/technicians/{id}/schedule",
+      "pathParams": [
+        "id"
+      ],
+      "queryParams": [
+        "from",
+        "to"
+      ],
+      "headerParams": [],
+      "bodyParams": [],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Technician ID"
+          },
+          "from": {
+            "type": "string",
+            "description": "Start date (YYYY-MM-DD, business-local; default today)"
+          },
+          "to": {
+            "type": "string",
+            "description": "End date (YYYY-MM-DD, inclusive; default from+7d; max range 31 days)"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "getVehicle",
+      "title": "Get a vehicle",
+      "description": "Get a vehicle\n\nReturns one fleet vehicle (service van/truck): identity, plate, operational status (idle, on job, maintenance) and which technicians use it — the fleet-management view of a single asset.",
+      "method": "GET",
+      "path": "/vehicles/{id}",
+      "pathParams": [
+        "id"
+      ],
+      "queryParams": [],
+      "headerParams": [],
+      "bodyParams": [],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Vehicle ID"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "listCrewCandidates",
+      "title": "Matching crew candidates for a job",
+      "description": "Matching crew candidates for a job\n\nTechnicians who can actually take this job, matched and ranked by the smart-assignment engine — skills per crew slot, weekly availability, existing schedule, time off and travel are all checked; each candidate carries a score breakdown (distance, travel, matched skills) plus the exact on-site session plan they would work. NOT a raw roster list (use GET /technicians for that). Returns the ranked feasible LEAD pool by default; pass include_buddies=true to also return per-slot buddy pools, include_vehicle=true to include the available-vehicle list. force_lead_id checks one specific technician: returns only that lead (with their crew combo) if feasible, else 409 JOB_REQUEST_NO_TECHNICIAN_AVAILABLE.",
+      "method": "GET",
+      "path": "/job-requests/{id}/crew-candidates",
+      "pathParams": [
+        "id"
+      ],
+      "queryParams": [
+        "include_buddies",
+        "include_vehicle",
+        "force_lead_id"
+      ],
+      "headerParams": [],
+      "bodyParams": [],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Job request ID or short_code"
+          },
+          "include_buddies": {
+            "type": "boolean",
+            "description": "Also return buddy candidate pools"
+          },
+          "include_vehicle": {
+            "type": "boolean",
+            "description": "Also return the available-vehicle list"
+          },
+          "force_lead_id": {
+            "type": "string",
+            "description": "Check a specific technician as lead — returns only that lead if feasible, else 409"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "listCustomers",
+      "title": "List customers",
+      "description": "List customers\n\nReturns a paginated, searchable directory of the business's customer records — the customer database (CRM) behind every booking and work order. Supports the `since`/`next_since` cursor for incremental sync into an external CRM, ERP or marketing tool.",
+      "method": "GET",
+      "path": "/customers",
+      "pathParams": [],
+      "queryParams": [
+        "q",
+        "tier",
+        "status",
+        "preferred_technician_id",
+        "sort",
+        "page",
+        "limit",
+        "since"
+      ],
+      "headerParams": [],
+      "bodyParams": [],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "q": {
+            "type": "string",
+            "description": "Search name, UID, phone, email"
+          },
+          "tier": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "Filter by tier: regular|vip (repeatable)"
+          },
+          "status": {
+            "type": "string",
+            "description": "Filter by status: active|inactive"
+          },
+          "preferred_technician_id": {
+            "type": "string",
+            "description": "Filter by preferred technician UUID"
+          },
+          "sort": {
+            "type": "string",
+            "description": "Sort: created_at_desc|created_at_asc|name_asc|name_desc|uid_asc|uid_desc (default: created_at_desc)"
+          },
+          "page": {
+            "type": "integer",
+            "description": "Page number (default 1)"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Page size (default 15, max 1000)"
+          },
+          "since": {
+            "type": "string",
+            "description": "RFC3339 cursor for short-polling; echo back next_since from prior response"
+          }
+        }
+      }
+    },
+    {
+      "name": "listEmergencyCandidates",
+      "title": "Rank technicians for a P0 emergency insert",
+      "description": "Rank technicians for a P0 emergency insert\n\nReturns the technicians who could take the emergency job at the requested start, ranked FASTEST-ARRIVAL first (arrival beats route efficiency for a P0). The response also carries a historical `crew_recommendation` (median crew size on comparable completed jobs + mandatory disclaimer — AC-2). Booked technicians are still candidates — each entry carries the displacement preview (which lower-priority jobs would be pushed, per day) that committing to them would cause; total_moves=0 means a free slot. P0 jobs are never displaced; P1 only by a P0. ETA is estimated from the technician's start location (no live GPS). Feed the chosen technician_id into emergency/preview + emergency/commit.\n409 NEXT STEPS: EMERGENCY_RESCHEDULE_NOT_ELIGIBLE — the job cannot be emergency-inserted (not P0, already started/completed/archived, or not quoted): fix the job state or use a normal confirm. EMERGENCY_RESCHEDULE_CREW_UNSUPPORTED — crew jobs cannot use the emergency flow (v1): staff via confirm/reassign instead. EMERGENCY_RESCHEDULE_MULTIDAY_UNSUPPORTED — a confirmed multi-day job cannot be re-inserted (v1): use the normal reassign flow. EMERGENCY_RESCHEDULE_NO_WORKING_DAY — the chosen date has no working hours: pick a working day. EMERGENCY_RESCHEDULE_IN_PAST — start time already passed: pick a future time.",
+      "method": "POST",
+      "path": "/job-requests/emergency/candidates",
+      "pathParams": [],
+      "queryParams": [],
+      "headerParams": [],
+      "bodyParams": [
+        "emergency_job_id",
+        "limit",
+        "mode",
+        "start_at"
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "emergency_job_id": {
+            "description": "ID of the P0 job to place.",
+            "format": "uuid",
+            "type": "string"
+          },
+          "limit": {
+            "description": "Max candidates to return (default 5, max 10).",
+            "maximum": 10,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "mode": {
+            "description": "Cascade mode each candidate's displacement preview assumes: overtime = displaced jobs stay same-day; next_day = overflow rolls to the next working day.",
+            "enum": [
+              "overtime",
+              "next_day"
+            ],
+            "type": "string"
+          },
+          "start_at": {
+            "description": "Desired start — business-local naive datetime, no offset. Must be in the future.",
+            "example": "2030-06-14T09:00:00",
+            "type": "string"
+          },
+          "idempotency_key": {
+            "type": "string",
+            "description": "Optional idempotency key (forwarded as the Idempotency-Key header). Reuse the same value when retrying so the operation runs at most once."
+          }
+        },
+        "required": [
+          "emergency_job_id",
+          "mode",
+          "start_at"
+        ]
+      }
+    },
+    {
+      "name": "listJobRequestBookingWindows",
+      "title": "Booking availability",
+      "description": "Booking availability\n\nReal-time appointment availability from the scheduling engine: returns the bookable date + time-period windows given technician capacity, working hours and service-territory coverage. Call this before creating a job request and offer the customer ONLY the returned windows — it prevents unschedulable bookings.",
+      "method": "GET",
+      "path": "/job-requests/booking-windows",
+      "pathParams": [],
+      "queryParams": [
+        "from",
+        "to"
+      ],
+      "headerParams": [
+        {
+          "arg": "x_timezone",
+          "header": "X-Timezone"
+        }
+      ],
+      "bodyParams": [],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "x_timezone": {
+            "type": "string",
+            "description": "Customer IANA timezone (sent as the X-Timezone header)"
+          },
+          "from": {
+            "type": "string",
+            "description": "Start YYYY-MM-DD"
+          },
+          "to": {
+            "type": "string",
+            "description": "End YYYY-MM-DD"
+          }
+        },
+        "required": [
+          "x_timezone"
+        ]
+      }
+    },
+    {
+      "name": "listJobRequestChanges",
+      "title": "Poll for new & changed job requests (sync feed)",
+      "description": "Poll for new & changed job requests (sync feed)\n\nKeep an external system (your CRM, ERP or field-service tool) in sync with bookings WITHOUT re-listing everything: returns the job requests (work orders) whose state changed (created, status transition, reschedule, soft-delete/archive) at or after the `since` cursor, ordered oldest-change-first (updated_at ASC).\n\nHow to use it: (1) On your first poll OMIT `since` — the server primes the cursor at \"now\", returns no items and a `next_since`. (2) Store `next_since` and pass it as `since` on the next poll. (3) Apply each returned item to your store by UPSERTING on `id` (the server re-scans a ~5s safety window, so the same job may appear again — never blindly append). (4) If `has_more` is true the page filled to `limit` and more changes are already waiting — poll again immediately; otherwise wait your normal interval (e.g. 5–15s).\n\nThis is NOT pagination — it is a time-keyed change feed. Use the paginated GET /job-requests for the initial bulk load, then this endpoint to stay live. Filters (status_keys, customer_id, …) narrow the feed to the slice you care about.",
+      "method": "GET",
+      "path": "/job-requests/changes",
+      "pathParams": [],
+      "queryParams": [
+        "status_keys",
+        "priority",
+        "customer_id",
+        "technician_id",
+        "scheduled_from",
+        "scheduled_to",
+        "since",
+        "limit"
+      ],
+      "headerParams": [],
+      "bodyParams": [],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "status_keys": {
+            "type": "string",
+            "description": "Comma-separated status slugs — only surface changes to jobs in these statuses"
+          },
+          "priority": {
+            "type": "string",
+            "description": "Priority filter (p0|p1|p2|p3)"
+          },
+          "customer_id": {
+            "type": "string",
+            "description": "Only changes to this customer's jobs (UUID)"
+          },
+          "technician_id": {
+            "type": "string",
+            "description": "Only changes to jobs assigned to this technician (UUID)"
+          },
+          "scheduled_from": {
+            "type": "string",
+            "description": "Filter from (YYYY-MM-DD = start of that day in the business timezone, or RFC3339); range is [from, to)"
+          },
+          "scheduled_to": {
+            "type": "string",
+            "description": "Filter to (YYYY-MM-DD = end of that day in the business timezone, or RFC3339), exclusive"
+          },
+          "since": {
+            "type": "string",
+            "description": "RFC3339 cursor from the prior response's next_since. OMIT on the first poll to prime the cursor at server-now."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Max changes per poll (default 15, max 1000). If the page fills, has_more=true."
+          }
+        }
+      }
+    },
+    {
+      "name": "listJobRequests",
+      "title": "List job requests",
+      "description": "List job requests\n\nPaginated list of the business's bookings (work orders) with dispatch-oriented filters: workflow status, customer, assigned technician, scheduled date range and free-text search over code/description. This is also the SCHEDULE query: combine technician_id + scheduled_from/scheduled_to to read one technician's agenda for a day or week (e.g. \"what is Alex doing tomorrow\"), or just the date range for the whole team's calendar.",
+      "method": "GET",
+      "path": "/job-requests",
+      "pathParams": [],
+      "queryParams": [
+        "status_keys",
+        "status",
+        "priority",
+        "customer_id",
+        "technician_id",
+        "service_area_id",
+        "scheduled_from",
+        "scheduled_to",
+        "completed_from",
+        "completed_to",
+        "q",
+        "sort",
+        "page",
+        "limit"
+      ],
+      "headerParams": [],
+      "bodyParams": [],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "status_keys": {
+            "type": "string",
+            "description": "Comma-separated status slugs"
+          },
+          "status": {
+            "type": "string",
+            "description": "active (default) | archived | all"
+          },
+          "priority": {
+            "type": "string",
+            "description": "Priority filter (p0|p1|p2|p3)"
+          },
+          "customer_id": {
+            "type": "string",
+            "description": "Customer UUID"
+          },
+          "technician_id": {
+            "type": "string",
+            "description": "Technician UUID"
+          },
+          "service_area_id": {
+            "type": "string",
+            "description": "Service-area UUID (board zone filter)"
+          },
+          "scheduled_from": {
+            "type": "string",
+            "description": "Filter from (YYYY-MM-DD = start of that day in the business timezone, or RFC3339); range is [from, to)"
+          },
+          "scheduled_to": {
+            "type": "string",
+            "description": "Filter to (YYYY-MM-DD = end of that day in the business timezone, or RFC3339), exclusive"
+          },
+          "completed_from": {
+            "type": "string",
+            "description": "Filter by completion time from (YYYY-MM-DD = start of that day in the business timezone, or RFC3339); range is [from, to). Counts jobs by when they were completed regardless of reschedules."
+          },
+          "completed_to": {
+            "type": "string",
+            "description": "Filter by completion time to (YYYY-MM-DD = end of that day in the business timezone, or RFC3339), exclusive"
+          },
+          "q": {
+            "type": "string",
+            "description": "Search short_code or description (case-insensitive, partial match)"
+          },
+          "sort": {
+            "type": "string",
+            "description": "Sort key: created_at:desc (default) | created_at:asc | scheduled_at:asc | scheduled_at:desc | priority:asc (P0 first) | priority:desc"
+          },
+          "page": {
+            "type": "integer",
+            "description": "Page number"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Page size"
+          }
+        }
+      }
+    },
+    {
+      "name": "listJobTypes",
+      "title": "List job types",
+      "description": "List job types\n\nReturns the business's service catalog — the job/work-order types it offers (e.g. installation, repair, maintenance, inspection for trades like HVAC, plumbing, electrical, cleaning). Use it to discover the `job_type_id` accepted when booking a job request, or to render a services menu on your own site.",
+      "method": "GET",
+      "path": "/job-types",
+      "pathParams": [],
+      "queryParams": [
+        "status"
+      ],
+      "headerParams": [],
+      "bodyParams": [],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "description": "Filter by status (active|inactive)"
+          }
+        }
+      }
+    },
+    {
+      "name": "listMatchingSlots",
+      "title": "Matching time slots for a quoted job",
+      "description": "Matching time slots for a quoted job\n\nBookable arrival-window slots for a quoted job, computed by the smart-assignment matching engine: each slot lists the technicians actually available to start then (skills, weekly availability, existing schedule, time off and travel all checked), with a per-technician match score. Use it to find and offer appointment times an agent or integration can then confirm (POST /job-requests/{id}/confirm with the slot's business_time.datetime). Same grid the end-customer's slot picker shows; slot width defaults to the business's arrival window — override via ?step_minutes (5–240). The job must be quoted first (the quote sets the visit duration the matcher schedules).",
+      "method": "GET",
+      "path": "/job-requests/{id}/time-segments",
+      "pathParams": [
+        "id"
+      ],
+      "queryParams": [
+        "step_minutes"
+      ],
+      "headerParams": [],
+      "bodyParams": [],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Job request ID (UUID or short_code)"
+          },
+          "step_minutes": {
+            "type": "integer",
+            "description": "Slot step in minutes (default: business arrival window, 5–240)"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "listNearbyTechnicians",
+      "title": "Find nearby feasible technicians (job-less location query)",
+      "description": "Find nearby feasible technicians (job-less location query)\n\nRanks who could serve a hypothetical visit at (lat,lng) starting `at` for `duration_minutes` — the engine applies the REAL hard filters (weekly hours, existing schedule, approved time-off, geographic service areas, optional skill floor) and returns candidates nearest-arrival first. ETA origin is each technician's start location (no live GPS). Use before creating a booking to propose realistic arrivals.",
+      "method": "GET",
+      "path": "/technicians/nearby",
+      "pathParams": [],
+      "queryParams": [
+        "lat",
+        "lng",
+        "at",
+        "duration_minutes",
+        "skill_ids",
+        "limit"
+      ],
+      "headerParams": [],
+      "bodyParams": [],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "lat": {
+            "type": "number",
+            "description": "Latitude of the service location"
+          },
+          "lng": {
+            "type": "number",
+            "description": "Longitude of the service location"
+          },
+          "at": {
+            "type": "string",
+            "description": "Visit start (RFC3339, e.g. 2026-07-20T14:00:00Z; default now)"
+          },
+          "duration_minutes": {
+            "type": "integer",
+            "description": "Visit length in minutes (default 60; 15–480)"
+          },
+          "skill_ids": {
+            "type": "string",
+            "description": "Comma-separated skill UUIDs to require/match"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Max candidates (default 10, max 20)"
+          }
+        },
+        "required": [
+          "lat",
+          "lng"
+        ]
+      }
+    },
+    {
+      "name": "listServiceAreas",
+      "title": "List service areas",
+      "description": "List service areas\n\nReturns the business's geographic coverage: paginated service areas (service territories / coverage zones) used for routing jobs to the right teams. Discover the `service_area_id` values accepted on customer create/update here.",
+      "method": "GET",
+      "path": "/service-areas",
+      "pathParams": [],
+      "queryParams": [
+        "page",
+        "limit"
+      ],
+      "headerParams": [],
+      "bodyParams": [],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer",
+            "description": "Page number (default 1)"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Items per page (default 15, max 1000)"
+          }
+        }
+      }
+    },
+    {
+      "name": "listSkillCategories",
+      "title": "List skill categories",
+      "description": "List skill categories\n\nReturns paginated skill categories — how the business groups technician qualifications by trade or specialty (e.g. HVAC, plumbing, electrical) — ordered alphabetically.",
+      "method": "GET",
+      "path": "/skill-categories",
+      "pathParams": [],
+      "queryParams": [
+        "page",
+        "limit"
+      ],
+      "headerParams": [],
+      "bodyParams": [],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer",
+            "description": "Page number (default: 1)"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Page size (default: 15, max: 1000)"
+          }
+        }
+      }
+    },
+    {
+      "name": "listSkills",
+      "title": "List all skills",
+      "description": "List all skills\n\nReturns the flat list of all active technician skills / qualifications for the current business — the vocabulary the dispatch engine uses for skill-based matching when assigning technicians and crews. Use it to discover the skill UUIDs accepted in `skill_ids` when creating a job request. (For a category-grouped view, use GET /skill-categories and GET /skill-categories/{id}/skills.)",
+      "method": "GET",
+      "path": "/skills",
+      "pathParams": [],
+      "queryParams": [],
+      "headerParams": [],
+      "bodyParams": [],
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "listSkillsByCategory",
+      "title": "List skills in a category",
+      "description": "List skills in a category\n\nReturns paginated skills (technician qualifications/certifications) belonging to the given trade/specialty category, ordered alphabetically. The `members` field on each skill is the count of active technicians currently holding it — a quick capacity check per capability.",
+      "method": "GET",
+      "path": "/skill-categories/{id}/skills",
+      "pathParams": [
+        "id"
+      ],
+      "queryParams": [
+        "page",
+        "limit"
+      ],
+      "headerParams": [],
+      "bodyParams": [],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Skill category ID (UUID)"
+          },
+          "page": {
+            "type": "integer",
+            "description": "Page number (default: 1)"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Page size (default: 15, max: 1000)"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "listTechnicians",
+      "title": "List technicians",
+      "description": "List technicians\n\nReturns the field workforce roster: paginated technicians (field workers / engineers) with status, assignment tier (lead, buddy, float), skills and crew relations — the people the dispatch engine schedules onto jobs. Discover the `preferred_technician_id` accepted on customer records here. Supports the `since` cursor for incremental workforce sync.",
+      "method": "GET",
+      "path": "/technicians",
+      "pathParams": [],
+      "queryParams": [
+        "page",
+        "limit",
+        "status",
+        "assignment_tier",
+        "keyword",
+        "sort",
+        "since"
+      ],
+      "headerParams": [],
+      "bodyParams": [],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer",
+            "description": "Page number (default 1)"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Items per page (default 15, max 1000)"
+          },
+          "status": {
+            "type": "string",
+            "description": "Filter by status (active, onboarding, deactive)"
+          },
+          "assignment_tier": {
+            "type": "string",
+            "description": "Filter by assignment tier (lead, buddy, float)"
+          },
+          "keyword": {
+            "type": "string",
+            "description": "Search by full name, email, phone, or address"
+          },
+          "sort": {
+            "type": "string",
+            "description": "Sort: created_at_desc|created_at_asc|name_asc|name_desc (default: created_at_desc)"
+          },
+          "since": {
+            "type": "string",
+            "description": "RFC3339 cursor for short-polling; echo back next_since from prior response"
+          }
+        }
+      }
+    },
+    {
+      "name": "listTechnicianSkills",
+      "title": "List skills for a technician",
+      "description": "List skills for a technician\n\nReturns paginated skills assigned to the technician. By default (`eligible_only` omitted or `true`) only active skills are returned — pass `eligible_only=false` to include inactive skills.",
+      "method": "GET",
+      "path": "/technicians/{id}/skills",
+      "pathParams": [
+        "id"
+      ],
+      "queryParams": [
+        "eligible_only",
+        "page",
+        "limit"
+      ],
+      "headerParams": [],
+      "bodyParams": [],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Technician ID — business_user_profiles.id (UUID)"
+          },
+          "eligible_only": {
+            "type": "boolean",
+            "description": "true (default) = active skills only; false = all assigned skills including inactive"
+          },
+          "page": {
+            "type": "integer",
+            "description": "Page number (default: 1)"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Page size (default: 15, max: 1000)"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "listVehicles",
+      "title": "List vehicles",
+      "description": "List vehicles\n\nReturns the business's fleet: paginated service vehicles (vans/trucks) with operational status (idle, on job, maintenance) — the fleet inventory behind crew carpooling and job mobilization. Supports the `since` cursor for incremental fleet sync.",
+      "method": "GET",
+      "path": "/vehicles",
+      "pathParams": [],
+      "queryParams": [
+        "page",
+        "limit",
+        "status",
+        "keyword",
+        "since"
+      ],
+      "headerParams": [],
+      "bodyParams": [],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "integer",
+            "description": "Page number (default 1)"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Items per page (default 15, max 1000)"
+          },
+          "status": {
+            "type": "string",
+            "description": "Filter by status (inactive, idle, on_job, maintenance)"
+          },
+          "keyword": {
+            "type": "string",
+            "description": "Search by name, brand, model, or plate number"
+          },
+          "since": {
+            "type": "string",
+            "description": "RFC3339 cursor for short-polling; echo back next_since from prior response"
+          }
+        }
+      }
+    },
+    {
+      "name": "previewEmergencyReschedule",
+      "title": "Preview emergency insert + cascade reschedule",
+      "description": "Preview emergency insert + cascade reschedule\n\nComputes (WITHOUT writing) the cascade of inserting an emergency job onto a technician at a chosen time: where the emergency lands + every job pushed back, grouped per business-local day. `displacement_mode=reassign` instead hands each displaced job to another feasible technician at its ORIGINAL window (same-day promise) — jobs with no alternate capacity fall back to reschedule and stay in `days`. `mode=overtime` keeps everyone same-day (tech works late); `mode=next_day` rolls overflow to the next working day(s). Read-only — safe to call repeatedly; commit is a separate endpoint. Isolated feature (see EMERGENCY_RESCHEDULE_DESIGN.md).\n409 NEXT STEPS: EMERGENCY_RESCHEDULE_SLOT_OCCUPIED — the landing window is blocked by a job the cascade may NOT move (another P0, a crew or multi-day job): choose another technician (walk the /candidates ranking) or another time; displacement never touches P0/crew/multi-day anchors. EMERGENCY_RESCHEDULE_NOT_ELIGIBLE / CREW_UNSUPPORTED / MULTIDAY_UNSUPPORTED / NO_WORKING_DAY / IN_PAST — same remedies as /candidates.",
+      "method": "POST",
+      "path": "/job-requests/emergency/preview",
+      "pathParams": [],
+      "queryParams": [],
+      "headerParams": [],
+      "bodyParams": [
+        "displacement_mode",
+        "emergency_job_id",
+        "mode",
+        "start_at",
+        "technician_id"
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "displacement_mode": {
+            "description": "Fate of displaced jobs: reschedule (default — pushed to later windows) or reassign (handed to another feasible technician at their ORIGINAL time; no-capacity jobs fall back to reschedule).",
+            "enum": [
+              "reschedule",
+              "reassign"
+            ],
+            "type": "string"
+          },
+          "emergency_job_id": {
+            "description": "ID of the P0 job to insert.",
+            "format": "uuid",
+            "type": "string"
+          },
+          "mode": {
+            "description": "Cascade mode: overtime = displaced jobs stay same-day (tech works late); next_day = overflow rolls to the next working day.",
+            "enum": [
+              "overtime",
+              "next_day"
+            ],
+            "type": "string"
+          },
+          "start_at": {
+            "description": "Desired start — business-local naive datetime, no offset. Must be in the future.",
+            "example": "2030-06-14T09:00:00",
+            "type": "string"
+          },
+          "technician_id": {
+            "description": "Target technician (must belong to the business).",
+            "format": "uuid",
+            "type": "string"
+          },
+          "idempotency_key": {
+            "type": "string",
+            "description": "Optional idempotency key (forwarded as the Idempotency-Key header). Reuse the same value when retrying so the operation runs at most once."
+          }
+        },
+        "required": [
+          "emergency_job_id",
+          "mode",
+          "start_at",
+          "technician_id"
+        ]
+      }
+    },
+    {
+      "name": "previewJobRequestMove",
+      "title": "Preview a schedule-board job move",
+      "description": "Preview a schedule-board job move\n\nComputes (WITHOUT writing) the outcome of moving a confirmed job to a new time and/or technician: where it lands, every later job pushed back per `mode`, and the warnings the coordinator would accept (displaced jobs leaving their confirmed windows, overtime). Same technician = pure time move; different technician = manual reassign. Read-only — safe to call repeatedly while dragging; commit is a separate endpoint. See SCHEDULE_BOARD_DESIGN.md.\nWarning detail: a TECH_NOT_FEASIBLE warning carries `reason` = `cannot_arrive_in_time` (commute from the tech day-start location / shift start; `earliest_feasible_at` (RFC3339 UTC) is the first same-day time they CAN be on site — suggest it as the drop slot) | `missing_required_skills` | `not_available_today` (no working hours, approved time off, or outside the service area) | `not_lead_tier`. For a P0 move this warning is advisory (coordinator may commit anyway); for p1/p2/p3 the same condition is the hard 409 SCHEDULE_MOVE_TECH_INFEASIBLE.\n409 NEXT STEPS: SCHEDULE_MOVE_NOT_ELIGIBLE (job unconfirmed/unquoted/archived/completed — not movable) · SCHEDULE_MOVE_IN_PROGRESS (tech already executing — do not move) · SCHEDULE_MOVE_IN_PAST (pick a future time) · SCHEDULE_MOVE_SLOT_OCCUPIED (landing window blocked by an immovable anchor — another tech/time) · SCHEDULE_MOVE_TECH_INFEASIBLE (non-P0 hard block: target tech not qualified/available — see the TECH_NOT_FEASIBLE warning reasons; change tech or time) · SCHEDULE_MOVE_MULTIDAY_UNSUPPORTED (multi-day jobs not movable v1) · SCHEDULE_MOVE_NO_WORKING_DAY (pick a working day) · SCHEDULE_MOVE_REQUIRES_FREE_SLOT (non-P0 moves may not displace — free capacity only, unless the owner enables allow_non_p0_displacement) · SCHEDULE_MOVE_CREW_UNSTAFFABLE (a crew slot has no feasible replacement at the new time — another time). A landing outside the customer-confirmed window is NOT an error — it returns 200 with a MOVED_OUTSIDE_WINDOW warning (customer_window attached) that the coordinator overrides.",
+      "method": "POST",
+      "path": "/job-requests/{id}/move/preview",
+      "pathParams": [
+        "id"
+      ],
+      "queryParams": [],
+      "headerParams": [],
+      "bodyParams": [
+        "mode",
+        "start_at",
+        "technician_id"
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Job request ID (UUID or short_code)"
+          },
+          "mode": {
+            "description": "Cascade mode for displaced jobs: overtime = stay same-day (tech works late); next_day = overflow rolls to the next working day.",
+            "enum": [
+              "overtime",
+              "next_day"
+            ],
+            "type": "string"
+          },
+          "start_at": {
+            "description": "New start — business-local naive datetime, no offset. Must be in the future.",
+            "example": "2030-06-14T09:00:00",
+            "type": "string"
+          },
+          "technician_id": {
+            "description": "Target technician — may equal the current tech (pure time move) or differ (manual reassign).",
+            "format": "uuid",
+            "type": "string"
+          },
+          "idempotency_key": {
+            "type": "string",
+            "description": "Optional idempotency key (forwarded as the Idempotency-Key header). Reuse the same value when retrying so the operation runs at most once."
+          }
+        },
+        "required": [
+          "id",
+          "mode",
+          "start_at",
+          "technician_id"
+        ]
+      }
+    },
+    {
+      "name": "quoteJobRequest",
+      "title": "Fire quote (FIXED action — business)",
+      "description": "Fire quote (FIXED action — business)\n\nSends the quote: sets quoted_at + duration cols, advances pending_action to confirm_booking. Status stays `booking`.",
+      "method": "POST",
+      "path": "/job-requests/{id}/quote",
+      "pathParams": [
+        "id"
+      ],
+      "queryParams": [],
+      "headerParams": [],
+      "bodyParams": [
+        "crew",
+        "demobilization_minutes",
+        "job_duration_minutes",
+        "mobilization_minutes",
+        "status_version"
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Job request ID"
+          },
+          "crew": {
+            "description": "Crew — multi-person plan (tech lead + buddies). Omit / empty = single\nperson (lead 100%). When present must have exactly one is_lead and\nwrench_percent summing to 100. See MULTIPERSON_CREW_DESIGN.md.",
+            "items": {
+              "properties": {
+                "is_lead": {
+                  "description": "Whether this slot is the crew lead. Exactly one slot must set it.",
+                  "type": "boolean"
+                },
+                "skill_ids": {
+                  "description": "UUIDs of the skills this slot requires (hard filter for the matching engine). Optional; up to 20.",
+                  "items": {
+                    "format": "uuid",
+                    "type": "string"
+                  },
+                  "maxItems": 20,
+                  "type": "array"
+                },
+                "wrench_percent": {
+                  "description": "This slot's share of the job's man-hours, in percent (1–100). Shares across all slots must sum to 100.",
+                  "example": 50,
+                  "maximum": 100,
+                  "minimum": 1,
+                  "type": "integer"
+                }
+              },
+              "type": "object"
+            },
+            "maxItems": 20,
+            "type": "array"
+          },
+          "demobilization_minutes": {
+            "description": "Demobilization (teardown) minutes added after the work. Optional, min 0.",
+            "example": 15,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "job_duration_minutes": {
+            "description": "Hands-on work duration in minutes (man-minutes for a crew job). Required, min 1.",
+            "example": 120,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "mobilization_minutes": {
+            "description": "Mobilization (setup/travel-prep) minutes added before the work. Optional, min 0.",
+            "example": 15,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "status_version": {
+            "description": "Optimistic-lock fence: the status_version from your last read. Omitted/0 = fence on the row's current version (no race protection).",
+            "example": 1,
+            "type": "integer"
+          },
+          "idempotency_key": {
+            "type": "string",
+            "description": "Optional idempotency key (forwarded as the Idempotency-Key header). Reuse the same value when retrying so the operation runs at most once."
+          }
+        },
+        "required": [
+          "id",
+          "job_duration_minutes"
+        ]
+      }
+    },
+    {
+      "name": "replaceTechnicianBuddies",
+      "title": "Replace a technician's buddies",
+      "description": "Replace a technician's buddies\n\nOverwrites the technician's buddy list with the provided set of technician IDs. Sending an empty list clears all buddies. Each buddy ID must be an active technician of the same business; a technician cannot be their own buddy.",
+      "method": "PUT",
+      "path": "/technicians/{id}/buddies",
+      "pathParams": [
+        "id"
+      ],
+      "queryParams": [],
+      "headerParams": [],
+      "bodyParams": [
+        "buddy_ids"
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Technician ID"
+          },
+          "buddy_ids": {
+            "description": "Technician ids to set as this lead's buddies (max 50; self-buddy rejected).",
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 50,
+            "type": "array"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "replaceTechnicianLeads",
+      "title": "Replace a buddy's leaders (buddy side)",
+      "description": "Replace a buddy's leaders (buddy side)\n\nSets the full set of leads this buddy belongs to (many-to-many favorites). Replace-semantics — lead_ids is the complete new list; [] clears every leader. Managed by business staff.",
+      "method": "PUT",
+      "path": "/technicians/{id}/leads",
+      "pathParams": [
+        "id"
+      ],
+      "queryParams": [],
+      "headerParams": [],
+      "bodyParams": [
+        "lead_ids"
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Buddy technician ID"
+          },
+          "lead_ids": {
+            "description": "Lead technician ids this buddy assists (max 50).",
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 50,
+            "type": "array"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "replaceTechnicianServiceAreas",
+      "title": "Replace a technician's service areas",
+      "description": "Replace a technician's service areas\n\nOverwrites the technician's service-area assignments with the provided set of service area IDs. Sending an empty list clears all. Each service area ID must belong to the same business — any missing id → 404 SERVICE_AREA_NOT_FOUND with `missing_ids` and no writes. The resolved set is returned and also embedded as `service_areas` in the technician GET/list response. Managed by business staff (Booking Coordinator), not tech self-service.",
+      "method": "PUT",
+      "path": "/technicians/{id}/service-areas",
+      "pathParams": [
+        "id"
+      ],
+      "queryParams": [],
+      "headerParams": [],
+      "bodyParams": [
+        "service_area_ids"
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Technician ID"
+          },
+          "service_area_ids": {
+            "description": "Service-area ids (max 50). Discover via GET /service-areas.",
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 50,
+            "type": "array"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "replaceTechnicianSkills",
+      "title": "Replace a technician's skills",
+      "description": "Replace a technician's skills\n\nSets the technician's full skill set in one call (replace semantics): skills not in the list are removed, new ones added. Pass an empty list to clear all. All skills must be active and belong to the business — on SKILL_NOT_FOUND (404) the `data` field contains `{\"missing_ids\": [\"uuid\", ...]}`; on SKILL_INACTIVE (409) it contains `{\"inactive_ids\": [\"uuid\", ...]}`.",
+      "method": "PATCH",
+      "path": "/technicians/{id}/skills",
+      "pathParams": [
+        "id"
+      ],
+      "queryParams": [],
+      "headerParams": [],
+      "bodyParams": [
+        "skill_ids"
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Technician ID — business_user_profiles.id (UUID)"
+          },
+          "skill_ids": {
+            "description": "Skill ids (max 100). Discover via GET /skills.",
+            "example": [
+              "550e8400-e29b-41d4-a716-446655440000",
+              "550e8400-e29b-41d4-a716-446655440001"
+            ],
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 100,
+            "type": "array"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "replaceTechnicianVehicles",
+      "title": "Replace a technician's vehicles",
+      "description": "Replace a technician's vehicles\n\nOverwrites the technician's vehicle list with the provided set of vehicle IDs (the vehicles this technician uses). Sending an empty list clears all. Each vehicle ID must belong to the same business. The list is also embedded as `vehicle_ids` in the technician GET/list response.",
+      "method": "PUT",
+      "path": "/technicians/{id}/vehicles",
+      "pathParams": [
+        "id"
+      ],
+      "queryParams": [],
+      "headerParams": [],
+      "bodyParams": [
+        "vehicle_ids"
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Technician ID"
+          },
+          "vehicle_ids": {
+            "description": "Vehicle ids (max 50). Discover via GET /vehicles.",
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 50,
+            "type": "array"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "updateCustomer",
+      "title": "Update a customer",
+      "description": "Update a customer\n\nReplaces mutable fields on a customer record — two-way CRM sync friendly (push changes from your system of record). Pass service_area_id=\"\" to clear the service area. Address fields (including latitude/longitude) live under the nested `address` object.",
+      "method": "PUT",
+      "path": "/customers/{id}",
+      "pathParams": [
+        "id"
+      ],
+      "queryParams": [],
+      "headerParams": [],
+      "bodyParams": [
+        "address",
+        "email",
+        "full_name",
+        "notes",
+        "phone",
+        "preferred_technician_id",
+        "service_area_id",
+        "sms_opt_in",
+        "status",
+        "tier",
+        "uid"
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Customer ID (UUID)"
+          },
+          "address": {
+            "allOf": [
+              {
+                "properties": {
+                  "city": {
+                    "description": "City / locality. Max 100 chars.",
+                    "maxLength": 100,
+                    "type": "string"
+                  },
+                  "country": {
+                    "description": "Country (free-form or ISO code). Max 100 chars.",
+                    "maxLength": 100,
+                    "type": "string"
+                  },
+                  "formatted": {
+                    "description": "Human-readable single-line address; when set it wins over the discrete parts for display. Max 500 chars.",
+                    "maxLength": 500,
+                    "type": "string"
+                  },
+                  "latitude": {
+                    "description": "Geographic latitude in decimal degrees (-90..90). Omit if unknown.",
+                    "maximum": 90,
+                    "minimum": -90,
+                    "type": "number"
+                  },
+                  "line": {
+                    "description": "Street address, line 1 (e.g. \"123 Main St\"). Max 255 chars.",
+                    "maxLength": 255,
+                    "type": "string"
+                  },
+                  "line2": {
+                    "description": "Street address, line 2 (apartment, suite, unit). Max 255 chars.",
+                    "maxLength": 255,
+                    "type": "string"
+                  },
+                  "longitude": {
+                    "description": "Geographic longitude in decimal degrees (-180..180). Omit if unknown.",
+                    "maximum": 180,
+                    "minimum": -180,
+                    "type": "number"
+                  },
+                  "postal_code": {
+                    "description": "Postal / ZIP code. Max 32 chars.",
+                    "maxLength": 32,
+                    "type": "string"
+                  },
+                  "state": {
+                    "description": "State / province / region. Max 100 chars.",
+                    "maxLength": 100,
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            ],
+            "description": "Postal address and coordinates."
+          },
+          "email": {
+            "description": "Email address.",
+            "type": "string"
+          },
+          "full_name": {
+            "description": "Customer's full name. Required; max 255 chars.",
+            "maxLength": 255,
+            "type": "string"
+          },
+          "notes": {
+            "description": "Free-form internal notes about the customer; max 4000 chars.",
+            "maxLength": 4000,
+            "type": "string"
+          },
+          "phone": {
+            "description": "Phone number. 10–20 chars.",
+            "maxLength": 20,
+            "type": "string"
+          },
+          "preferred_technician_id": {
+            "description": "UUID of the technician this customer prefers. Must belong to this business.",
+            "format": "uuid",
+            "type": "string"
+          },
+          "service_area_id": {
+            "description": "UUID of the service area for this customer. Must belong to this business.",
+            "format": "uuid",
+            "type": "string"
+          },
+          "sms_opt_in": {
+            "description": "SMS consent, tri-state: omit/null = leave unchanged; true = grant (only\nwhen the customer explicitly consented — the original consent timestamp\nis preserved); false = revoke (opt-out, stops SMS immediately).",
+            "type": "boolean"
+          },
+          "status": {
+            "description": "Lifecycle status.",
+            "enum": [
+              "active",
+              "inactive"
+            ],
+            "type": "string"
+          },
+          "tier": {
+            "description": "Loyalty tier.",
+            "enum": [
+              "regular",
+              "vip"
+            ],
+            "type": "string"
+          },
+          "uid": {
+            "description": "Your external reference for this customer. Optional; max 32 chars.",
+            "maxLength": 32,
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "full_name"
+        ]
+      }
+    },
+    {
+      "name": "updateJobPriority",
+      "title": "Set job priority (scheduling staff)",
+      "description": "Set job priority (scheduling staff)\n\nSets the P0–P3 priority on a non-archived, non-completed job (Owner / Administrator / Booking Coordinator). Allowed values: \"p0\" (emergency, interrupt-driven) | \"p1\" (top — displaced only by p0; may carry an sla_deadline arming auto-escalation) | \"p2\" (standard) | \"p3\" (deferrable, first displacement victim). sla_deadline is only valid with p1 and must be in the future (business-local naive datetime); moving away from p1 disarms the SLA clock. Accepts UUID or short_code in :id.",
+      "method": "PATCH",
+      "path": "/job-requests/{id}/priority",
+      "pathParams": [
+        "id"
+      ],
+      "queryParams": [],
+      "headerParams": [],
+      "bodyParams": [
+        "note",
+        "priority",
+        "sla_deadline"
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Job request ID or short_code"
+          },
+          "note": {
+            "description": "Optional justification (max 500 chars) — recorded on the activity trail\nand the priority_changed webhook. Recommended when de-escalating an\nSLA-escalated job (audit provenance).",
+            "maxLength": 500,
+            "type": "string"
+          },
+          "priority": {
+            "description": "New P0–P3 priority level. p0=emergency, p1=top, p2=standard, p3=deferrable.",
+            "enum": [
+              "p0",
+              "p1",
+              "p2",
+              "p3"
+            ],
+            "example": "p1",
+            "type": "string"
+          },
+          "sla_deadline": {
+            "description": "SLA deadline (business-local naive datetime) — only with priority=p1;\n(re)arms the auto-escalation clock. Omitted on a p1 change keeps any\nstored deadline; changing away from p1 disarms SLA entirely.",
+            "example": "2030-06-14T17:00:00",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "priority"
+        ]
+      }
+    },
+    {
+      "name": "updateTechnician",
+      "title": "Update a technician",
+      "description": "Update a technician\n\nUpdates mutable technician profile fields. `start_location_type=office` re-snapshots the current business address + coordinates (body `address`/`start_location_lat`/`start_location_long` ignored; requires business coordinates, else 400 BUSINESS_LOCATION_MISSING). `start_location_type=home` (or empty) uses the address + coordinates from the body.",
+      "method": "PUT",
+      "path": "/technicians/{id}",
+      "pathParams": [
+        "id"
+      ],
+      "queryParams": [],
+      "headerParams": [],
+      "bodyParams": [
+        "address",
+        "assignment_tier",
+        "business_group_id",
+        "email",
+        "full_name",
+        "job_title",
+        "join_date",
+        "phone",
+        "start_location_lat",
+        "start_location_long",
+        "start_location_type"
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Technician ID"
+          },
+          "address": {
+            "allOf": [
+              {
+                "properties": {
+                  "city": {
+                    "description": "City / locality.",
+                    "maxLength": 100,
+                    "type": "string"
+                  },
+                  "country": {
+                    "description": "Country (free-form or ISO code).",
+                    "maxLength": 100,
+                    "type": "string"
+                  },
+                  "formatted": {
+                    "description": "Full display string; when set it wins over the discrete parts for display.",
+                    "maxLength": 500,
+                    "type": "string"
+                  },
+                  "line": {
+                    "description": "Street line 1.",
+                    "maxLength": 255,
+                    "type": "string"
+                  },
+                  "line2": {
+                    "description": "Street line 2 (unit, suite).",
+                    "maxLength": 255,
+                    "type": "string"
+                  },
+                  "postal_code": {
+                    "description": "Postal / ZIP code.",
+                    "maxLength": 32,
+                    "type": "string"
+                  },
+                  "state": {
+                    "description": "State / province / region.",
+                    "maxLength": 100,
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            ],
+            "description": "Home address (the day-start point when start_location_type=home)."
+          },
+          "assignment_tier": {
+            "description": "Crew tier: lead / buddy / float (float = excluded from auto crew-assign).",
+            "enum": [
+              "lead",
+              "buddy",
+              "float"
+            ],
+            "type": "string"
+          },
+          "business_group_id": {
+            "description": "Role group. Discover IDs via GET /permission/groups.",
+            "format": "uuid",
+            "type": "string"
+          },
+          "email": {
+            "description": "Email address. At least one of phone/email is required.",
+            "maxLength": 255,
+            "type": "string"
+          },
+          "full_name": {
+            "description": "The person's full display name. Required; max 255 chars.",
+            "maxLength": 255,
+            "type": "string"
+          },
+          "job_title": {
+            "description": "Display title.",
+            "maxLength": 255,
+            "type": "string"
+          },
+          "join_date": {
+            "description": "First working day (YYYY-MM-DD).",
+            "format": "date",
+            "type": "string"
+          },
+          "phone": {
+            "description": "At least one of phone/email is required.",
+            "maxLength": 50,
+            "type": "string"
+          },
+          "start_location_lat": {
+            "description": "Explicit day-start latitude in decimal degrees (-90..90); when set it wins over the address geocode.",
+            "maximum": 90,
+            "minimum": -90,
+            "type": "number"
+          },
+          "start_location_long": {
+            "description": "Explicit day-start longitude in decimal degrees (-180..180); when set it wins over the address geocode.",
+            "maximum": 180,
+            "minimum": -180,
+            "type": "number"
+          },
+          "start_location_type": {
+            "description": "Day-start point: home or office; explicit coordinates win when set.",
+            "enum": [
+              "home",
+              "office"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "business_group_id",
+          "full_name"
+        ]
+      }
+    }
+  ]
+}

@@ -123,6 +123,40 @@ Clients that only speak stdio can bridge with
 }
 ```
 
+### Local server (npm — `@crisphive/mcp`)
+
+This repository also ships a thin **local stdio server**: the same 43 tools
+(same names, same schemas — generated from the same `/v1` OpenAPI spec as the
+hosted endpoint), where each call is an HTTPS request to the Crisphive API
+with your key. No business logic runs locally.
+
+```json
+{
+  "mcpServers": {
+    "crisphive": {
+      "command": "npx",
+      "args": ["-y", "@crisphive/mcp"],
+      "env": { "CRISPHIVE_API_KEY": "chsk_test_YOUR_KEY" }
+    }
+  }
+}
+```
+
+Environment variables:
+
+| Variable | Required | Meaning |
+|---|---|---|
+| `CRISPHIVE_API_KEY` | for tool calls | `chsk_live_…` = production data, `chsk_test_…` = isolated sandbox. Create keys in the dashboard (Developers → API keys). |
+| `CRISPHIVE_BASE_URL` | no | API origin override (default `https://api.crisphive.com`). |
+
+Prefer the **hosted remote server** (`https://api.crisphive.com/mcp`) when your
+client supports it — OAuth, no key handling, always current. The local package
+exists for stdio-only clients and self-hosted setups.
+
+Developing in this repo: `npm ci && npm test`. The tool registry
+(`src/tools.generated.json`) is generated — `npm run generate` refreshes it
+from the live spec; CI fails if it drifts from `/v1`.
+
 ## Authentication
 
 Every request is authenticated with a secret API key sent as a bearer token.
