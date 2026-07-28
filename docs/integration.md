@@ -26,6 +26,12 @@ drift.
 
 ---
 
+> **Stdio-only client?** This guide covers the hosted remote endpoint. For
+> clients that only speak stdio (or self-hosted setups) there is also a local
+> package, **`@crisphive/mcp`** on npm — the same 43 tools, each call an HTTPS
+> request to `/v1` with your `CRISPHIVE_API_KEY`. See the README's
+> "Local server" section.
+
 ## 2. Authentication — two paths
 
 The MCP endpoint accepts **either** credential on the `Authorization: Bearer`
