@@ -6,12 +6,38 @@
     "url": "https://github.com/crisphive/crisphive-mcp",
     "source": "github"
   },
-  "version": "2.0.0",
+  "version": "2.1.0",
   "websiteUrl": "https://docs.crisphive.com/mcp",
   "remotes": [
     {
       "type": "streamable-http",
       "url": "https://api.crisphive.com/mcp"
+    }
+  ],
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "@crisphive/mcp",
+      "version": "2.0.0",
+      "runtimeHint": "npx",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "CRISPHIVE_API_KEY",
+          "description": "Crisphive Developer API key (chsk_live_... = production data, chsk_test_... = isolated sandbox). Create one in the dashboard under Developers -> API keys.",
+          "isRequired": true,
+          "isSecret": true
+        },
+        {
+          "name": "CRISPHIVE_BASE_URL",
+          "description": "API origin override. Defaults to https://api.crisphive.com.",
+          "isRequired": false,
+          "isSecret": false
+        }
+      ]
     }
   ]
 }
