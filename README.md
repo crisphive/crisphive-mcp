@@ -1,5 +1,9 @@
 # Crisphive MCP
 
+[![smithery badge](https://smithery.ai/badge/crisphive/crisphive-mcp)](https://smithery.ai/servers/crisphive/crisphive-mcp)
+[![glama score](https://glama.ai/mcp/servers/crisphive/crisphive-mcp/badges/score.svg)](https://glama.ai/mcp/servers/crisphive/crisphive-mcp)
+[![npm](https://img.shields.io/npm/v/%40crisphive%2Fmcp)](https://www.npmjs.com/package/@crisphive/mcp)
+
 The official MCP (Model Context Protocol) server for the
 [Crisphive API](https://docs.crisphive.com/) — **agentic AI scheduling
 infrastructure for field service**.
