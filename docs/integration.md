@@ -216,11 +216,25 @@ grant_type=refresh_token
 → 200 { "access_token": "<new JWT>", "refresh_token": "<new refresh>", "expires_in": 3600 }
 ```
 
-Refresh tokens are **single-use and rotate** on every refresh (~30-day
-lifetime). **Reusing an already-rotated refresh token burns the entire token
-family** — every token issued from that authorization is revoked, and the
-client must re-authorize (step 4). This detects a stolen refresh token. Always
-store only the newest refresh token returned.
+Refresh tokens are **single-use and rotate** on every refresh. **Reusing an
+already-rotated refresh token burns the entire token family** — every token
+issued from that authorization is revoked, and the client must re-authorize
+(step 4). This detects a stolen refresh token. Always store only the newest
+refresh token returned.
+
+**How long a connection lasts — two independent clocks.** A connector that
+keeps working is never disconnected on a schedule, but a forgotten one dies on
+its own:
+
+- *Sliding idle window* — each refresh issues a new refresh token good for
+  another **30 days**. Refresh at least that often and the connection rolls
+  forward indefinitely.
+- *Absolute cap* — regardless of activity, the grant ends **90 days** after the
+  business owner approved it (they can set 1–365 days per connection in the
+  dashboard). Past the cap, refresh fails and the owner must consent again.
+
+Treat any failed refresh as "restart the authorization flow", never as a
+retryable error — both a lapsed idle window and a reached cap surface there.
 
 ### Scopes
 

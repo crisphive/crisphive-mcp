@@ -172,6 +172,22 @@ data environment:**
 
 Load keys from the environment — never commit them.
 
+**Keys expire.** The lifetime is chosen when the key is created — 30 days by
+default, up to 365 — and is fixed for that key's life; it cannot be extended
+later. To renew, create a *second* key, point your agent at it, then revoke the
+first: a business can hold several active keys at once, so the changeover has
+no downtime and needs no special endpoint (the same procedure AWS documents for
+access keys). Read `expires_at` from the dashboard or the key API and schedule
+the swap. An aged-out key fails with `API_KEY_EXPIRED`, distinct from
+`API_KEY_INVALID`, so you can alert on a missed renewal separately from a
+revocation.
+
+Crisphive emails the business's owners 7 days before a key expires (14 days for
+an OAuth connection), so an expiry should not be a surprise — but the mail goes
+to the business, not necessarily to you, so track `expires_at` yourself. A key
+deliberately created for less than 7 days gets no advance notice; it would have
+arrived at creation.
+
 The MCP endpoint additionally supports **OAuth 2.1** for end-user connectors
 (claude.ai, ChatGPT, …): the business owner authorizes your agent on a consent
 screen and no key is ever handled. A compliant MCP client runs the whole flow
