@@ -22,6 +22,29 @@ install or run (this repository holds the documentation and registry manifest).
 https://api.crisphive.com/mcp
 ```
 
+## Try these first
+
+Connect (a `chsk_test_` sandbox key is enough), then paste any of these straight
+into your agent:
+
+1. **Book a job** — *"Book a water heater repair for a new customer — Sarah
+   Chen, 45 Elm Street, weekday mornings. Show me the three best real
+   availability windows first, then book the best one."*
+   (`createCustomer → listJobRequestBookingWindows → createJobRequest →
+   quoteJobRequest → confirmJobRequest`)
+2. **Absorb an emergency** — *"A burst-pipe emergency just came in for 2 p.m.
+   today. Who can absorb it, and what happens to the rest of their day?
+   Preview the reschedule before committing anything."*
+   (`listEmergencyCandidates → previewEmergencyReschedule →
+   commitEmergencyReschedule`)
+3. **Explain the schedule** — *"Walk me through tomorrow's schedule: why did
+   each job get its technician — skills, territory, travel time — and is there
+   an assignment you'd change?"*
+   (`listJobRequests → getTechnicianSchedule` → a grounded explanation)
+
+The same three prompts appear on every Crisphive listing and docs page, so what
+you see here is exactly the first-run experience everywhere.
+
 ## Requirements
 
 Any MCP client that supports remote servers over Streamable HTTP —
