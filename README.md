@@ -27,23 +27,22 @@ https://api.crisphive.com/mcp
 Connect (a `chsk_test_` sandbox key is enough), then paste any of these straight
 into your agent:
 
-1. **Book a job** — *"Book a water heater repair for a new customer — Sarah
-   Chen, 45 Elm Street, weekday mornings. Show me the three best real
-   availability windows first, then book the best one."*
+1. **Job creation** — *"Schedule a 2-hour HVAC job at 145 Laurier Ave W
+   tomorrow for Marie Tremblay, 613-555-0142."*
    (`createCustomer → listJobRequestBookingWindows → createJobRequest →
    quoteJobRequest → confirmJobRequest`)
-2. **Absorb an emergency** — *"A burst-pipe emergency just came in for 2 p.m.
-   today. Who can absorb it, and what happens to the rest of their day?
-   Preview the reschedule before committing anything."*
+2. **Emergency insertion** — *"Emergency plumbing job now at 99 Bank St for
+   David Okafor (613-555-0198) — show me what gets rescheduled."*
    (`listEmergencyCandidates → previewEmergencyReschedule →
    commitEmergencyReschedule`)
-3. **Explain the schedule** — *"Walk me through tomorrow's schedule: why did
-   each job get its technician — skills, territory, travel time — and is there
-   an assignment you'd change?"*
-   (`listJobRequests → getTechnicianSchedule` → a grounded explanation)
+3. **Daily outline** — *"Outline my day tomorrow and flag anything at risk."*
+   (`listJobRequests → getTechnicianSchedule`)
+4. **Availability discovery** — *"Find 3 hours this week for a bike ride with
+   my wife without risking any jobs."*
+   (`getTechnicianSchedule` → the agent reasons over the slack)
 
-The same three prompts appear on every Crisphive listing and docs page, so what
-you see here is exactly the first-run experience everywhere.
+The same prompts appear on every Crisphive listing and docs page, so what you
+see here is exactly the first-run experience everywhere.
 
 ## Requirements
 
