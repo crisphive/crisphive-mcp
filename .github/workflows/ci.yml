@@ -28,3 +28,13 @@ jobs:
           node-version: 20
       - run: node scripts/generate.mjs
       - run: git diff --exit-code src/tools.generated.json
+
+  # Brand casing: the brand is "Crisphive" — one capital, never a capital H.
+  # Directories scrape this repo's README verbatim, so a wrong-cased brand here
+  # propagates to every listing. The [H] class keeps the rule from matching itself.
+  brand:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          ! git grep -nI "Crisp[H]ive" -- . || { echo "Brand casing violation: write 'Crisphive' — a capital H is always wrong"; exit 1; }
