@@ -1,0 +1,14 @@
+{
+  "name": "crisphive",
+  "displayName": "Crisphive",
+  "version": "2.1.0",
+  "description": "Field-service dispatch and technician scheduling for AI agents — 43 tools generated from the same OpenAPI spec as the Crisphive SDKs, preview/commit on every mutating flow, and sub-3-second cascade rescheduling when an emergency lands.",
+  "author": {
+    "name": "Crisphive",
+    "email": "developer@crisphive.com"
+  },
+  "homepage": "https://docs.crisphive.com/mcp",
+  "repository": "https://github.com/crisphive/crisphive-mcp",
+  "license": "MIT",
+  "keywords": ["mcp", "field-service", "dispatch", "technician-scheduling", "scheduling-infrastructure", "work-orders", "crisphive"]
+}
