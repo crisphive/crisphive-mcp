@@ -1,12 +1,12 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "com.crisphive/mcp",
-  "description": "Agentic scheduling & booking for field service: availability, jobs, customers, crews, fleet.",
+  "description": "Field-service dispatch & technician scheduling for AI agents — sub-3-second cascade rescheduling.",
   "repository": {
     "url": "https://github.com/crisphive/crisphive-mcp",
     "source": "github"
   },
-  "version": "2.1.0",
+  "version": "2.1.1",
   "websiteUrl": "https://docs.crisphive.com/mcp",
   "remotes": [
     {
