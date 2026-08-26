@@ -44,6 +44,8 @@ into your agent:
 The same prompts appear on every Crisphive listing and docs page, so what you
 see here is exactly the first-run experience everywhere.
 
+→ Full overview, tool table and one-click connect: https://crisphive.com/claude
+
 ## Requirements
 
 Any MCP client that supports remote servers over Streamable HTTP —
