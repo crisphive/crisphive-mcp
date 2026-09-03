@@ -1,12 +1,12 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "com.crisphive/mcp",
-  "description": "Field ops on a deterministic solver — run jobs, crews & fleet from Claude or ChatGPT.",
+  "description": "Field operations on a deterministic solver — run jobs, crews & fleet from Claude or ChatGPT.",
   "repository": {
     "url": "https://github.com/crisphive/crisphive-mcp",
     "source": "github"
   },
-  "version": "2.2.1",
+  "version": "2.2.2",
   "websiteUrl": "https://docs.crisphive.com/mcp",
   "remotes": [
     {
