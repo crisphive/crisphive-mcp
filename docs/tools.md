@@ -1,6 +1,6 @@
 # Crisphive MCP — Tool Reference
 
-43 field-service-management tools — job booking, quoting & schedule
+53 field-service-management tools — job booking, quoting & schedule
 confirmation, appointment scheduling, crew/skill/availability matching,
 priority (P0–P3) & SLA management, emergency dispatch with cascade
 rescheduling, job moves, work-order tracking, dispatch data, CRM sync,
@@ -63,7 +63,7 @@ webhooks).
 | `previewEmergencyReschedule` | `POST /v1/job-requests/emergency/preview` | The full cascade WITHOUT writing: which jobs move per day — or, with `displacement_mode: "reassign"`, which are handed to another technician at their ORIGINAL time (`reassignments`). |
 | `commitEmergencyReschedule` | `POST /v1/job-requests/emergency/commit` | Apply the previewed emergency plan (locks + version fences; drift → `EMERGENCY_RESCHEDULE_PLAN_DRIFTED`, re-preview — in reassign mode some displaced jobs may already be re-staffed and notified). The emergency job must be `p0` and quoted; an unconfirmed job is auto-confirmed. Supports `idempotency_key`. |
 
-## Catalog — read-only (discover the reference IDs used by the writes above)
+## Catalog — reference reads (discover the IDs used by the writes above)
 
 | Tool | REST operation | Description |
 |---|---|---|
@@ -75,6 +75,26 @@ webhooks).
 | `listServiceAreas` | `GET /v1/service-areas` | Geographic coverage: service territories / coverage zones (for `service_area_id` on customers). |
 | `getServiceArea` | `GET /v1/service-areas/{id}` | Get one service territory (coverage zone). |
 
+## Catalog management — create + delete (import sync, added 2026-09-03)
+
+Mint the reference data the writes above link to. Deliberately create + delete
+ONLY — there is no update tool on any of these yet (the underlying updates are
+full-replace; a partial-update rework comes first), so to change one, delete
+and recreate it or use the dashboard. Typical import order: service areas →
+skill categories → skills → vehicles → job types → technicians → customers →
+job requests. None of these writes fires a webhook event.
+
+| Tool | REST operation | Description |
+|---|---|---|
+| `createJobType` | `POST /v1/job-types` | Add a service-catalog entry (name + optional active/inactive status). Supports `idempotency_key`. |
+| `deleteJobType` | `DELETE /v1/job-types/{id}` | Remove a catalog entry (destructive — clients confirm). |
+| `createSkillCategory` | `POST /v1/skill-categories` | Add a trade/specialty category (name + optional icon). Supports `idempotency_key`. |
+| `deleteSkillCategory` | `DELETE /v1/skill-categories/{id}` | Remove a category (destructive). |
+| `createSkill` | `POST /v1/skill-categories/{id}/skills` | Add a skill under its category — a skill always lives under a category. Supports `idempotency_key`. |
+| `deleteSkill` | `DELETE /v1/skills/{id}` | Remove a skill (destructive). |
+| `createServiceArea` | `POST /v1/service-areas` | Add a service territory. Optional GeoJSON `boundary` polygon (`[lng, lat]` rings); without one the area works as a label but does not geo-filter auto-assignment. Supports `idempotency_key`. |
+| `deleteServiceArea` | `DELETE /v1/service-areas/{id}` | Remove a territory (destructive). |
+
 ## Team & fleet — reads
 
 | Tool | REST operation | Description |
@@ -83,6 +103,8 @@ webhooks).
 | `getTechnician` | `GET /v1/technicians/{id}` | One technician's dispatch-ready profile: status, tier, qualifications, crew relations, vehicles. |
 | `listVehicles` | `GET /v1/vehicles` | The service fleet: vans/trucks with operational status (idle, on job, maintenance). |
 | `getVehicle` | `GET /v1/vehicles/{id}` | Get one fleet vehicle and which technicians use it. |
+| `createVehicle` | `POST /v1/vehicles` | Add a fleet vehicle (only `name` required; optional `owner_id` must be a lead technician or management profile). Which vehicles a technician USES is `replaceTechnicianVehicles`. Supports `idempotency_key`. Added 2026-09-03. |
+| `deleteVehicle` | `DELETE /v1/vehicles/{id}` | Remove a vehicle from the fleet (soft; technician references are scrubbed automatically; destructive — clients confirm). |
 
 ---
 

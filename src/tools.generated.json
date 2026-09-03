@@ -323,7 +323,7 @@
             "type": "string"
           },
           "phone": {
-            "description": "Phone number. Optional, but at least one of phone/email is required; 10–20 chars.",
+            "description": "Phone number in E.164 international format: a leading `+` and the country\ncode, e.g. `+16135550188`. A bare national number (`6135550188`) is\nREJECTED with PHONE_INVALID — there is no default region to guess the\ncountry from. Separators (spaces, dashes, parentheses) are stripped before\nvalidation. Optional, but at least one of phone/email is required; 10–20 chars.",
             "maxLength": 20,
             "type": "string"
           },
@@ -522,9 +522,238 @@
       }
     },
     {
+      "name": "createJobType",
+      "title": "Create a job type",
+      "description": "Create a job type\n\nAdds a new job type to the business catalog",
+      "method": "POST",
+      "path": "/job-types",
+      "pathParams": [],
+      "queryParams": [],
+      "headerParams": [
+        {
+          "arg": "idempotency_key",
+          "header": "Idempotency-Key"
+        }
+      ],
+      "bodyParams": [
+        "name",
+        "status"
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "idempotency_key": {
+            "type": "string",
+            "description": "Unique key making retries safe: a repeat send with the same key replays the original response (header Idempotent-Replayed: true) instead of re-running the operation. Reusing a key with a different body returns 422 IDEMPOTENCY_KEY_REUSE. (sent as the Idempotency-Key header)"
+          },
+          "name": {
+            "description": "Job-type name (required) — what the booking form shows as the kind of\nwork. Stored as the canonical English value; per-locale names are a\ndashboard authoring feature.",
+            "example": "Survey",
+            "maxLength": 255,
+            "type": "string"
+          },
+          "status": {
+            "description": "Lifecycle status. Defaults to active; inactive types cannot be selected\nfor new job requests.",
+            "enum": [
+              "active",
+              "inactive"
+            ],
+            "example": "active",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "createServiceArea",
+      "title": "Create a new service area",
+      "description": "Create a new service area\n\nCreates a service area with optional polygon boundary for the business",
+      "method": "POST",
+      "path": "/service-areas",
+      "pathParams": [],
+      "queryParams": [],
+      "headerParams": [
+        {
+          "arg": "idempotency_key",
+          "header": "Idempotency-Key"
+        }
+      ],
+      "bodyParams": [
+        "boundary",
+        "city",
+        "country",
+        "county",
+        "description",
+        "district",
+        "name",
+        "postal_code",
+        "state_province"
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "idempotency_key": {
+            "type": "string",
+            "description": "Unique key making retries safe: a repeat send with the same key replays the original response (header Idempotent-Replayed: true) instead of re-running the operation. Reusing a key with a different body returns 422 IDEMPOTENCY_KEY_REUSE. (sent as the Idempotency-Key header)"
+          },
+          "boundary": {
+            "description": "GeoJSON polygon boundary (optional)",
+            "type": "object"
+          },
+          "city": {
+            "description": "City name",
+            "example": "New York",
+            "maxLength": 100,
+            "type": "string"
+          },
+          "country": {
+            "description": "Country name",
+            "example": "United States",
+            "maxLength": 100,
+            "type": "string"
+          },
+          "county": {
+            "description": "County name",
+            "example": "New York County",
+            "maxLength": 100,
+            "type": "string"
+          },
+          "description": {
+            "description": "Optional description",
+            "example": "Main service area covering downtown",
+            "maxLength": 1000,
+            "type": "string"
+          },
+          "district": {
+            "description": "District name",
+            "example": "Manhattan",
+            "maxLength": 100,
+            "type": "string"
+          },
+          "name": {
+            "description": "Area name (required)",
+            "example": "Downtown Area",
+            "maxLength": 255,
+            "type": "string"
+          },
+          "postal_code": {
+            "description": "Postal code",
+            "example": "10001",
+            "maxLength": 20,
+            "type": "string"
+          },
+          "state_province": {
+            "description": "State / province name",
+            "example": "New York",
+            "maxLength": 100,
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "createSkill",
+      "title": "Create a skill",
+      "description": "Create a skill\n\nCreates a skill under the given category. New skills are active by default. Skill names must be unique within their category.",
+      "method": "POST",
+      "path": "/skill-categories/{id}/skills",
+      "pathParams": [
+        "id"
+      ],
+      "queryParams": [],
+      "headerParams": [
+        {
+          "arg": "idempotency_key",
+          "header": "Idempotency-Key"
+        }
+      ],
+      "bodyParams": [
+        "description",
+        "name"
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Skill category ID (UUID)"
+          },
+          "idempotency_key": {
+            "type": "string",
+            "description": "Unique key making retries safe: a repeat send with the same key replays the original response (header Idempotent-Replayed: true) instead of re-running the operation. Reusing a key with a different body returns 422 IDEMPOTENCY_KEY_REUSE. (sent as the Idempotency-Key header)"
+          },
+          "description": {
+            "description": "What the skill covers. Optional.",
+            "example": "Repair of household water pipes",
+            "maxLength": 4000,
+            "type": "string"
+          },
+          "name": {
+            "description": "Skill name (required). The matching engine hard-filters technicians on\nskills when a booking carries skill_ids.",
+            "example": "Pipe Repair",
+            "maxLength": 200,
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ]
+      }
+    },
+    {
+      "name": "createSkillCategory",
+      "title": "Create a skill category",
+      "description": "Create a skill category\n\nCreates a skill category for the current business. Categories group skills (e.g. \"Plumbing\", \"Electrical\"). Names must be unique within a business.",
+      "method": "POST",
+      "path": "/skill-categories",
+      "pathParams": [],
+      "queryParams": [],
+      "headerParams": [
+        {
+          "arg": "idempotency_key",
+          "header": "Idempotency-Key"
+        }
+      ],
+      "bodyParams": [
+        "icon",
+        "name"
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "idempotency_key": {
+            "type": "string",
+            "description": "Unique key making retries safe: a repeat send with the same key replays the original response (header Idempotent-Replayed: true) instead of re-running the operation. Reusing a key with a different body returns 422 IDEMPOTENCY_KEY_REUSE. (sent as the Idempotency-Key header)"
+          },
+          "icon": {
+            "description": "Icon slug for the dashboard's catalog tree. Optional.",
+            "example": "wrench",
+            "maxLength": 64,
+            "type": "string"
+          },
+          "name": {
+            "description": "Category name (required), e.g. a trade: Plumbing, Electrical, HVAC.",
+            "example": "Plumbing",
+            "maxLength": 200,
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
       "name": "createTechnician",
       "title": "Add a technician",
-      "description": "Add a technician\n\nCreates a technician membership under the current business. If the phone/email matches an existing user, their account is linked. Otherwise a new user identity is created. Either way the membership starts active. The new member is notified (live mode only, best-effort): an email when `email` is supplied, an SMS when `phone` is supplied, both when both — informational only, no activation step (login stays passwordless: magic link / OTP). If the technician was previously removed (deactive) they are reactivated instead (also notified). Owner/Administrator groups cannot be assigned via API key, and not at all in sandbox mode.\n\nOptional relations (all validated; any missing id → 404 TECHNICIAN_NOT_FOUND with `missing_ids`): `buddy_ids` sets this technician's buddy list (use when creating a lead); `lead_ids` adds this technician as a buddy of each named lead (use when creating a buddy — the buddy-side way to attach the same lead↔buddy relation); `service_area_ids` assigns the technician to those service areas.\n\n`start_location_type=office` snapshots the business address + coordinates into the technician at create time; `address`, `start_location_lat`, `start_location_long` in the body are ignored. Requires the business to have coordinates set (else 400 BUSINESS_LOCATION_MISSING). `start_location_type=home` (or empty) uses the address + coordinates from the body.",
+      "description": "Add a technician\n\nCreates a technician membership under the current business. If the phone/email matches an existing user, their account is linked. Otherwise a new user identity is created. Either way the membership starts active. The new member is notified (live mode only, best-effort): an email when `email` is supplied, an SMS when `phone` is supplied, both when both — informational only, no activation step (login stays passwordless: magic link / OTP). Re-adding someone: if the person is currently SUSPENDED on this business (a dashboard action — not reachable via this API), the create REACTIVATES that existing membership (same technician id, their existing group; also notified). A technician REMOVED with deleteTechnician is a closed membership: re-adding the same email/phone links the SAME underlying person (no duplicate identity) but creates a FRESH membership with a NEW id — history stays under the old one. Owner/Administrator groups cannot be assigned via API key, and not at all in sandbox mode.\n\nOptional relations (all validated; any missing id → 404 TECHNICIAN_NOT_FOUND with `missing_ids`): `buddy_ids` sets this technician's buddy list (use when creating a lead); `lead_ids` adds this technician as a buddy of each named lead (use when creating a buddy — the buddy-side way to attach the same lead↔buddy relation); `service_area_ids` assigns the technician to those service areas.\n\n`start_location_type=office` snapshots the business address + coordinates into the technician at create time; `address`, `start_location_lat`, `start_location_long` in the body are ignored. Requires the business to have coordinates set (else 400 BUSINESS_LOCATION_MISSING). `start_location_type=home` (or empty) uses the address + coordinates from the body.",
       "method": "POST",
       "path": "/technicians",
       "pathParams": [],
@@ -656,7 +885,7 @@
             "type": "array"
           },
           "phone": {
-            "description": "At least one of phone/email is required (identity resolution key).",
+            "description": "Phone number in E.164 international format: a leading `+` and the country\ncode, e.g. `+16135550188`. A bare national number (`6135550188`) is\nREJECTED with PHONE_INVALID — there is no default region to guess the\ncountry from. At least one of phone/email is required (identity resolution key).",
             "maxLength": 50,
             "type": "string"
           },
@@ -697,6 +926,93 @@
       }
     },
     {
+      "name": "createVehicle",
+      "title": "Create a new vehicle",
+      "description": "Create a new vehicle\n\nCreates a vehicle for the business fleet",
+      "method": "POST",
+      "path": "/vehicles",
+      "pathParams": [],
+      "queryParams": [],
+      "headerParams": [
+        {
+          "arg": "idempotency_key",
+          "header": "Idempotency-Key"
+        }
+      ],
+      "bodyParams": [
+        "brand",
+        "current_mileage",
+        "model",
+        "name",
+        "owner_id",
+        "plate_number",
+        "vehicle_type",
+        "year"
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "idempotency_key": {
+            "type": "string",
+            "description": "Unique key making retries safe: a repeat send with the same key replays the original response (header Idempotent-Replayed: true) instead of re-running the operation. Reusing a key with a different body returns 422 IDEMPOTENCY_KEY_REUSE. (sent as the Idempotency-Key header)"
+          },
+          "brand": {
+            "description": "Manufacturer / make. Optional.",
+            "example": "Ford",
+            "maxLength": 50,
+            "type": "string"
+          },
+          "current_mileage": {
+            "description": "Odometer reading. Optional; must be >= 0 when sent.",
+            "example": 50000,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "model": {
+            "description": "Model name. Optional.",
+            "example": "Transit",
+            "maxLength": 50,
+            "type": "string"
+          },
+          "name": {
+            "description": "Vehicle display name (required). The only mandatory field — a fleet\nimport needs nothing but names to get vehicles into the system.",
+            "example": "North Van 01",
+            "maxLength": 100,
+            "type": "string"
+          },
+          "owner_id": {
+            "description": "UUID of the technician who owns (has claimed) this vehicle. Optional.\nThe owner must be a lead technician or a management role — a buddy- or\nfloat-tier profile is refused with VEHICLE_OWNER_TIER_NOT_ALLOWED.\nAssigning which vehicles a technician USES is a different relation:\nPUT /technicians/{id}/vehicles.",
+            "example": "550e8400-e29b-41d4-a716-446655440000",
+            "format": "uuid",
+            "type": "string"
+          },
+          "plate_number": {
+            "description": "License plate. Optional.",
+            "example": "ABC-1234",
+            "maxLength": 20,
+            "type": "string"
+          },
+          "vehicle_type": {
+            "enum": [
+              "van",
+              "truck",
+              "car"
+            ],
+            "example": "van",
+            "type": "string"
+          },
+          "year": {
+            "description": "Model year. Optional.",
+            "example": 2023,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    {
       "name": "deleteCustomer",
       "title": "Delete a customer",
       "description": "Delete a customer\n\nSoft-deletes a customer record, removing it from the active customer directory; existing bookings keep their customer snapshot.",
@@ -722,6 +1038,106 @@
       }
     },
     {
+      "name": "deleteJobType",
+      "title": "Delete a job type",
+      "description": "Delete a job type\n\nSoft-deletes a job type. System rows cannot be deleted.",
+      "method": "DELETE",
+      "path": "/job-types/{id}",
+      "pathParams": [
+        "id"
+      ],
+      "queryParams": [],
+      "headerParams": [],
+      "bodyParams": [],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Job Type ID"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "deleteServiceArea",
+      "title": "Delete a service area",
+      "description": "Delete a service area\n\nSoft deletes a service area",
+      "method": "DELETE",
+      "path": "/service-areas/{id}",
+      "pathParams": [
+        "id"
+      ],
+      "queryParams": [],
+      "headerParams": [],
+      "bodyParams": [],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Service Area ID"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "deleteSkill",
+      "title": "Delete a skill",
+      "description": "Delete a skill\n\nPermanently deletes a skill. Returns SKILL_HAS_MEMBERS (409) if any active technicians are still assigned — unassign all technicians first.",
+      "method": "DELETE",
+      "path": "/skills/{id}",
+      "pathParams": [
+        "id"
+      ],
+      "queryParams": [],
+      "headerParams": [],
+      "bodyParams": [],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Skill ID (UUID)"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "deleteSkillCategory",
+      "title": "Delete a skill category",
+      "description": "Delete a skill category\n\nPermanently deletes a skill category. Returns SKILL_CATEGORY_NOT_EMPTY (409) if any skills still belong to the category — remove or move all skills first.",
+      "method": "DELETE",
+      "path": "/skill-categories/{id}",
+      "pathParams": [
+        "id"
+      ],
+      "queryParams": [],
+      "headerParams": [],
+      "bodyParams": [],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Skill category ID (UUID)"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
       "name": "deleteTechnician",
       "title": "Remove a technician",
       "description": "Remove a technician\n\nSoft-removes a technician from the business by setting status to deactive",
@@ -739,6 +1155,31 @@
           "id": {
             "type": "string",
             "description": "Technician ID"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "deleteVehicle",
+      "title": "Delete a vehicle",
+      "description": "Delete a vehicle\n\nSoft deletes a vehicle",
+      "method": "DELETE",
+      "path": "/vehicles/{id}",
+      "pathParams": [
+        "id"
+      ],
+      "queryParams": [],
+      "headerParams": [],
+      "bodyParams": [],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Vehicle ID"
           }
         },
         "required": [
@@ -960,7 +1401,7 @@
     {
       "name": "listCrewCandidates",
       "title": "Matching crew candidates for a job",
-      "description": "Matching crew candidates for a job\n\nTechnicians who can actually take this job, matched and ranked by the smart-assignment engine — skills per crew slot, weekly availability, existing schedule, time off and travel are all checked; each candidate carries a score breakdown (distance, travel, matched skills) plus the exact on-site session plan they would work. NOT a raw roster list (use GET /technicians for that). Returns the ranked feasible LEAD pool by default; pass include_buddies=true to also return per-slot buddy pools, include_vehicle=true to include the available-vehicle list. force_lead_id checks one specific technician: returns only that lead (with their crew combo) if feasible, else 409 JOB_REQUEST_NO_TECHNICIAN_AVAILABLE.",
+      "description": "Matching crew candidates for a job\n\nRE-STAFFING candidates for a CONFIRMED, SCHEDULED job (not yet completed/archived) — any earlier or later stage returns 409 JOB_REQUEST_INVALID_TRANSITION. This is the pool of technicians who could REPLACE the current crew: the currently assigned lead and buddies are deliberately excluded (they are the status quo, not an option), so on a small roster an empty `leads` list is a normal answer, not an error. For pre-booking discovery (\"who could take this job before it is confirmed?\") use listJobRequestBookingWindows / listMatchingSlots / the time-segments grid instead. Candidates are matched and ranked by the smart-assignment engine — skills per crew slot, weekly availability, existing schedule, time off and travel are all checked; each carries a score breakdown (distance, travel, matched skills) plus the exact on-site session plan they would work. NOT a raw roster list (use GET /technicians for that). Returns the ranked feasible LEAD pool by default; pass include_buddies=true to also return per-slot buddy pools, include_vehicle=true to include the available-vehicle list. force_lead_id checks one specific technician: returns only that lead (with their crew combo) if feasible, else 409 JOB_REQUEST_NO_TECHNICIAN_AVAILABLE.",
       "method": "GET",
       "path": "/job-requests/{id}/crew-candidates",
       "pathParams": [
@@ -1705,7 +2146,7 @@
     {
       "name": "previewJobRequestMove",
       "title": "Preview a schedule-board job move",
-      "description": "Preview a schedule-board job move\n\nComputes (WITHOUT writing) the outcome of moving a confirmed job to a new time and/or technician: where it lands, every later job pushed back per `mode`, and the warnings the coordinator would accept (displaced jobs leaving their confirmed windows, overtime). Same technician = pure time move; different technician = manual reassign. Read-only — safe to call repeatedly while dragging; commit is a separate endpoint. See SCHEDULE_BOARD_DESIGN.md.\nWarning detail: a TECH_NOT_FEASIBLE warning carries `reason` = `cannot_arrive_in_time` (commute from the tech day-start location / shift start; `earliest_feasible_at` (RFC3339 UTC) is the first same-day time they CAN be on site — suggest it as the drop slot) | `missing_required_skills` | `not_available_today` (no working hours, approved time off, or outside the service area) | `not_lead_tier`. For a P0 move this warning is advisory (coordinator may commit anyway); for p1/p2/p3 the same condition is the hard 409 SCHEDULE_MOVE_TECH_INFEASIBLE.\n409 NEXT STEPS: SCHEDULE_MOVE_NOT_ELIGIBLE (job unconfirmed/unquoted/archived/completed — not movable) · SCHEDULE_MOVE_IN_PROGRESS (tech already executing — do not move) · SCHEDULE_MOVE_IN_PAST (pick a future time) · SCHEDULE_MOVE_SLOT_OCCUPIED (landing window blocked by an immovable anchor — another tech/time) · SCHEDULE_MOVE_TECH_INFEASIBLE (non-P0 hard block: target tech not qualified/available — see the TECH_NOT_FEASIBLE warning reasons; change tech or time) · SCHEDULE_MOVE_MULTIDAY_UNSUPPORTED (multi-day jobs not movable v1) · SCHEDULE_MOVE_NO_WORKING_DAY (pick a working day) · SCHEDULE_MOVE_REQUIRES_FREE_SLOT (non-P0 moves may not displace — free capacity only, unless the owner enables allow_non_p0_displacement) · SCHEDULE_MOVE_CREW_UNSTAFFABLE (a crew slot has no feasible replacement at the new time — another time). A landing outside the customer-confirmed window is NOT an error — it returns 200 with a MOVED_OUTSIDE_WINDOW warning (customer_window attached) that the coordinator overrides.",
+      "description": "Preview a schedule-board job move\n\nComputes (WITHOUT writing) the outcome of moving a confirmed job to a new time and/or technician: where it lands, every later job pushed back per `mode`, and the warnings the coordinator would accept (displaced jobs leaving their confirmed windows, overtime). Same technician = pure time move; different technician = manual reassign. Read-only — safe to call repeatedly while dragging; commit is a separate endpoint. See SCHEDULE_BOARD_DESIGN.md.\nWarning detail: a TECH_NOT_FEASIBLE warning carries `reason` = `cannot_arrive_in_time` (commute from the tech day-start location / shift start; `earliest_feasible_at` (RFC3339 UTC) is the first same-day time they CAN be on site — suggest it as the drop slot) | `missing_required_skills` | `not_available_today` (no working hours, approved time off, or outside the service area) | `not_lead_tier`. For a P0 move this warning is advisory (coordinator may commit anyway); for p1/p2/p3 the same condition is the hard 409 SCHEDULE_MOVE_TECH_INFEASIBLE.\n409 NEXT STEPS: SCHEDULE_MOVE_NOT_ELIGIBLE (job unconfirmed/unquoted/archived/completed — not movable) · SCHEDULE_MOVE_IN_PROGRESS (tech already executing — do not move) · SCHEDULE_MOVE_IN_PAST (pick a future time) · SCHEDULE_MOVE_SLOT_OCCUPIED (landing window blocked by an immovable anchor — another tech/time) · SCHEDULE_MOVE_TECH_INFEASIBLE (non-P0 hard block: target tech not qualified/available — its `data` carries `technician_id`, `reason` (same catalog as the TECH_NOT_FEASIBLE warning) and, for `cannot_arrive_in_time`, `earliest_feasible_at` (RFC3339 UTC) to suggest as the drop slot; change tech or time) · SCHEDULE_MOVE_MULTIDAY_UNSUPPORTED (multi-day jobs not movable v1) · SCHEDULE_MOVE_NO_WORKING_DAY (pick a working day) · SCHEDULE_MOVE_REQUIRES_FREE_SLOT (non-P0 moves may not displace — free capacity only, unless the owner enables allow_non_p0_displacement) · SCHEDULE_MOVE_CREW_UNSTAFFABLE (a crew slot has no feasible replacement at the new time — another time). A landing outside the customer-confirmed window is NOT an error — it returns 200 with a MOVED_OUTSIDE_WINDOW warning (customer_window attached) that the coordinator overrides.",
       "method": "POST",
       "path": "/job-requests/{id}/move/preview",
       "pathParams": [
@@ -2032,7 +2473,7 @@
     {
       "name": "updateCustomer",
       "title": "Update a customer",
-      "description": "Update a customer\n\nReplaces mutable fields on a customer record — two-way CRM sync friendly (push changes from your system of record). Pass service_area_id=\"\" to clear the service area. Address fields (including latitude/longitude) live under the nested `address` object.",
+      "description": "Update a customer\n\nPARTIAL update — send only the fields you are changing; anything you OMIT is left exactly as stored (two-way CRM sync friendly: push one field from your system of record without re-sending the record). To CLEAR a field, send it as an empty string: uid, phone, email, notes, preferred_technician_id, service_area_id. `tier` and `status` are enums with no empty member, so an empty value there is ignored rather than stored. `full_name` cannot be set to empty. The nested `address` object is all-or-nothing: omit it to leave the stored address (and its coordinates) untouched; when present it REPLACES the whole block, and missing latitude/longitude are geocoded from the address. A customer must keep at least one contact channel — an update that would clear both phone and email is refused with PHONE_OR_EMAIL_REQUIRED.",
       "method": "PUT",
       "path": "/customers/{id}",
       "pathParams": [
@@ -2115,34 +2556,34 @@
                 "type": "object"
               }
             ],
-            "description": "Postal address and coordinates."
+            "description": "Postal address and coordinates. Omit the whole object to leave the stored address untouched; when present it REPLACES the address block."
           },
           "email": {
-            "description": "Email address.",
+            "description": "Email address. Omit to leave unchanged, \"\" to clear.",
             "type": "string"
           },
           "full_name": {
-            "description": "Customer's full name. Required; max 255 chars.",
+            "description": "Customer's full name. Omit to leave unchanged; an empty or blank value is ignored (a customer cannot be left nameless). Max 255 chars.",
             "maxLength": 255,
             "type": "string"
           },
           "notes": {
-            "description": "Free-form internal notes about the customer; max 4000 chars.",
+            "description": "Free-form internal notes about the customer. Omit to leave unchanged, \"\" to clear; max 4000 chars.",
             "maxLength": 4000,
             "type": "string"
           },
           "phone": {
-            "description": "Phone number. 10–20 chars.",
+            "description": "Phone number in E.164 international format (`+16135550188`); a bare\nnational number is rejected with PHONE_INVALID — see createCustomerReq.Phone.\nOmit to leave unchanged, \"\" to clear. 10–20 chars.",
             "maxLength": 20,
             "type": "string"
           },
           "preferred_technician_id": {
-            "description": "UUID of the technician this customer prefers. Must belong to this business.",
+            "description": "UUID of the technician this customer prefers. Omit to leave unchanged, \"\" to clear. Must belong to this business.",
             "format": "uuid",
             "type": "string"
           },
           "service_area_id": {
-            "description": "UUID of the service area for this customer. Must belong to this business.",
+            "description": "UUID of the service area for this customer. Omit to leave unchanged, \"\" to clear. Must belong to this business.",
             "format": "uuid",
             "type": "string"
           },
@@ -2151,7 +2592,7 @@
             "type": "boolean"
           },
           "status": {
-            "description": "Lifecycle status.",
+            "description": "Lifecycle status. Omit to leave unchanged; \"\" is ignored.",
             "enum": [
               "active",
               "inactive"
@@ -2159,7 +2600,7 @@
             "type": "string"
           },
           "tier": {
-            "description": "Loyalty tier.",
+            "description": "Loyalty tier. Omit to leave unchanged; \"\" is ignored (an enum has no empty member).",
             "enum": [
               "regular",
               "vip"
@@ -2167,14 +2608,13 @@
             "type": "string"
           },
           "uid": {
-            "description": "Your external reference for this customer. Optional; max 32 chars.",
+            "description": "Your external reference for this customer. Omit to leave unchanged, \"\" to clear. Max 32 chars.",
             "maxLength": 32,
             "type": "string"
           }
         },
         "required": [
-          "id",
-          "full_name"
+          "id"
         ]
       }
     },
@@ -2340,7 +2780,7 @@
             "type": "string"
           },
           "phone": {
-            "description": "At least one of phone/email is required.",
+            "description": "Phone number in E.164 international format (`+16135550188`); a bare\nnational number is rejected with PHONE_INVALID — see AddTechnicianReq.Phone.\nAt least one of phone/email is required — enforced in the usecase; see\nthe note on AddTechnicianReq.Phone for why no binding rule may decide it.",
             "maxLength": 50,
             "type": "string"
           },

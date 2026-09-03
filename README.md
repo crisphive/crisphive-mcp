@@ -153,7 +153,7 @@ Clients that only speak stdio can bridge with
 
 ### Local server (npm — `@crisphive/mcp`)
 
-This repository also ships a thin **local stdio server**: the same 43 tools
+This repository also ships a thin **local stdio server**: the same 53 tools
 (same names, same schemas — generated from the same `/v1` OpenAPI spec as the
 hosted endpoint), where each call is an HTTPS request to the Crisphive API
 with your key. No business logic runs locally.
@@ -221,7 +221,7 @@ PKCE. Full flow, scopes and token lifetimes:
 
 ## Tools
 
-43 tools, one per operation of the public `/v1` API — same names as the SDK
+53 tools, one per operation of the public `/v1` API — same names as the SDK
 methods (`listCustomers`, `createJobRequest`, …), derived from the same OpenAPI
 spec so REST and MCP never drift. Full reference:
 [docs/tools.md](docs/tools.md).
