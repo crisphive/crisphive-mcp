@@ -1,6 +1,6 @@
 # Crisphive MCP — Tool Reference
 
-53 field-service-management tools — job booking, quoting & schedule
+53 field-operations tools — job booking, quoting & schedule
 confirmation, appointment scheduling, crew/skill/availability matching,
 priority (P0–P3) & SLA management, emergency dispatch with cascade
 rescheduling, job moves, work-order tracking, dispatch data, CRM sync,
@@ -24,12 +24,12 @@ OpenAPI 3.0.3 spec: `https://api.crisphive.com/developers/openapi.json`.
 
 | Tool | REST operation | Description |
 |---|---|---|
-| `createJobRequest` | `POST /v1/job-requests` | Book a field-service job — the work order that enters the dispatch & scheduling pipeline: `customer_id` + `job_dates` (1–12 entries of date + morning/afternoon/evening periods). Optional `job_type_id`, `skill_ids`, `description`, `priority` (`p0`–`p3`, default from business settings) and `sla_deadline` (P1 only — arms auto-escalation to P0). Supports `idempotency_key`. |
+| `createJobRequest` | `POST /v1/job-requests` | Book a field-operations job — the work order that enters the dispatch & scheduling pipeline: `customer_id` + `job_dates` (1–12 entries of date + morning/afternoon/evening periods). Optional `job_type_id`, `skill_ids`, `description`, `priority` (`p0`–`p3`, default from business settings) and `sla_deadline` (P1 only — arms auto-escalation to P0). Supports `idempotency_key`. |
 | `listJobRequests` | `GET /v1/job-requests` | List bookings (work orders) with dispatch-oriented filters: workflow status, customer, technician, date range, search. Doubles as the SCHEDULE query: `technician_id` + `scheduled_from`/`scheduled_to` reads one technician's agenda for a day or week. |
 | `getJobRequest` | `GET /v1/job-requests/{id}` | Full work-order detail: workflow status, quoted duration, confirmed schedule, assigned technician / crew. |
 | `getJobRequestTimeline` | `GET /v1/job-requests/{id}/timeline` | Job lifecycle timeline — per-status progress of the work order (booked → confirmed → en route → arrived → completed). |
 | `listJobRequestBookingWindows` | `GET /v1/job-requests/booking-windows` | Real-time appointment availability from the scheduling engine (technician capacity, working hours, territory coverage). Requires `x_timezone` (IANA timezone). Call this first and offer only the returned windows. |
-| `listJobRequestChanges` | `GET /v1/job-requests/changes` | Incremental sync feed keeping an external CRM/ERP/field-service tool live: pass the last `next_since` watermark, upsert results by `id`, poll again immediately while `has_more` is true. |
+| `listJobRequestChanges` | `GET /v1/job-requests/changes` | Incremental sync feed keeping an external CRM/ERP/field-operations tool live: pass the last `next_since` watermark, upsert results by `id`, poll again immediately while `has_more` is true. |
 
 An integration can now DRIVE the schedule end-to-end (create → quote →
 confirm — see "Scheduling actions" below). Completing a job stays a

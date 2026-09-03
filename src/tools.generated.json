@@ -363,7 +363,7 @@
     {
       "name": "createJobRequest",
       "title": "Create a job request",
-      "description": "Create a job request\n\nBooks a field-service job — the work order that enters the dispatch & scheduling pipeline. Send the customer's UUID plus requested `job_dates` (date + morning/afternoon/evening periods, ideally offered from GET /job-requests/booking-windows), optional `job_type_id` (service catalog), `skill_ids` (required technician qualifications) and a free-text description. Quoting, technician/crew assignment and completion then advance the work order through the business's workflow.",
+      "description": "Create a job request\n\nBooks a field-operations job — the work order that enters the dispatch & scheduling pipeline. Send the customer's UUID plus requested `job_dates` (date + morning/afternoon/evening periods, ideally offered from GET /job-requests/booking-windows), optional `job_type_id` (service catalog), `skill_ids` (required technician qualifications) and a free-text description. Quoting, technician/crew assignment and completion then advance the work order through the business's workflow.",
       "method": "POST",
       "path": "/job-requests",
       "pathParams": [],
@@ -1215,7 +1215,7 @@
     {
       "name": "getJobRequest",
       "title": "Get a job request",
-      "description": "Get a job request\n\nReturns the full work order: current workflow status, quoted duration, confirmed schedule, customer contact snapshot and the assigned technician / crew — everything a dispatcher or an external field-service system needs to track one job.",
+      "description": "Get a job request\n\nReturns the full work order: current workflow status, quoted duration, confirmed schedule, customer contact snapshot and the assigned technician / crew — everything a dispatcher or an external field-operations system needs to track one job.",
       "method": "GET",
       "path": "/job-requests/{id}",
       "pathParams": [
@@ -1595,7 +1595,7 @@
     {
       "name": "listJobRequestChanges",
       "title": "Poll for new & changed job requests (sync feed)",
-      "description": "Poll for new & changed job requests (sync feed)\n\nKeep an external system (your CRM, ERP or field-service tool) in sync with bookings WITHOUT re-listing everything: returns the job requests (work orders) whose state changed (created, status transition, reschedule, soft-delete/archive) at or after the `since` cursor, ordered oldest-change-first (updated_at ASC).\n\nHow to use it: (1) On your first poll OMIT `since` — the server primes the cursor at \"now\", returns no items and a `next_since`. (2) Store `next_since` and pass it as `since` on the next poll. (3) Apply each returned item to your store by UPSERTING on `id` (the server re-scans a ~5s safety window, so the same job may appear again — never blindly append). (4) If `has_more` is true the page filled to `limit` and more changes are already waiting — poll again immediately; otherwise wait your normal interval (e.g. 5–15s).\n\nThis is NOT pagination — it is a time-keyed change feed. Use the paginated GET /job-requests for the initial bulk load, then this endpoint to stay live. Filters (status_keys, customer_id, …) narrow the feed to the slice you care about.",
+      "description": "Poll for new & changed job requests (sync feed)\n\nKeep an external system (your CRM, ERP or field-operations tool) in sync with bookings WITHOUT re-listing everything: returns the job requests (work orders) whose state changed (created, status transition, reschedule, soft-delete/archive) at or after the `since` cursor, ordered oldest-change-first (updated_at ASC).\n\nHow to use it: (1) On your first poll OMIT `since` — the server primes the cursor at \"now\", returns no items and a `next_since`. (2) Store `next_since` and pass it as `since` on the next poll. (3) Apply each returned item to your store by UPSERTING on `id` (the server re-scans a ~5s safety window, so the same job may appear again — never blindly append). (4) If `has_more` is true the page filled to `limit` and more changes are already waiting — poll again immediately; otherwise wait your normal interval (e.g. 5–15s).\n\nThis is NOT pagination — it is a time-keyed change feed. Use the paginated GET /job-requests for the initial bulk load, then this endpoint to stay live. Filters (status_keys, customer_id, …) narrow the feed to the slice you care about.",
       "method": "GET",
       "path": "/job-requests/changes",
       "pathParams": [],

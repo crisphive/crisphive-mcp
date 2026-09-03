@@ -2,7 +2,7 @@
   "name": "@crisphive/mcp",
   "version": "2.0.0",
   "mcpName": "com.crisphive/mcp",
-  "description": "Crisphive MCP server (stdio) — agentic scheduling & booking for field service. 53 tools over the Crisphive Developer API /v1.",
+  "description": "Crisphive MCP server (stdio) — field operations — constraint-based scheduling on a deterministic solver, manageable from Claude or ChatGPT. 53 tools over the Crisphive Developer API /v1.",
   "license": "MIT",
   "type": "module",
   "bin": {
