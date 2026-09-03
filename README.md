@@ -6,7 +6,7 @@
 
 The official MCP (Model Context Protocol) server for the
 [Crisphive API](https://docs.crisphive.com/) — **agentic AI scheduling
-infrastructure for **field operations**.
+infrastructure for field operations**.
 
 Lets AI agents — Claude, ChatGPT, Gemini, Cursor or any MCP client — match
 schedules between customers and businesses and route crews to jobs by
