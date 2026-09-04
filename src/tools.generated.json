@@ -2670,6 +2670,177 @@
       }
     },
     {
+      "name": "updateJobType",
+      "title": "Update a job type",
+      "description": "Update a job type\n\nUpdates a job type. System rows (is_system=true) cannot be modified.",
+      "method": "PUT",
+      "path": "/job-types/{id}",
+      "pathParams": [
+        "id"
+      ],
+      "queryParams": [],
+      "headerParams": [],
+      "bodyParams": [
+        "name",
+        "status"
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Job Type ID"
+          },
+          "name": {
+            "description": "nil = keep; min=1 rejects an explicit \"\".",
+            "example": "Survey",
+            "maxLength": 255,
+            "minLength": 1,
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "active",
+              "inactive"
+            ],
+            "example": "active",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "updateServiceArea",
+      "title": "Update a service area",
+      "description": "Update a service area\n\nUpdates the service area details including boundary",
+      "method": "PUT",
+      "path": "/service-areas/{id}",
+      "pathParams": [
+        "id"
+      ],
+      "queryParams": [],
+      "headerParams": [],
+      "bodyParams": [
+        "boundary",
+        "city",
+        "country",
+        "county",
+        "description",
+        "district",
+        "name",
+        "postal_code",
+        "state_province"
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Service Area ID"
+          },
+          "boundary": {
+            "description": "GeoJSON polygon boundary. Omit to KEEP the stored polygon; send one to replace it.",
+            "type": "object"
+          },
+          "city": {
+            "example": "Los Angeles",
+            "maxLength": 100,
+            "type": "string"
+          },
+          "country": {
+            "example": "United States",
+            "maxLength": 100,
+            "type": "string"
+          },
+          "county": {
+            "example": "Los Angeles County",
+            "maxLength": 100,
+            "type": "string"
+          },
+          "description": {
+            "description": "nil = keep; \"\" clears it.",
+            "example": "Updated description",
+            "maxLength": 1000,
+            "type": "string"
+          },
+          "district": {
+            "example": "Hollywood",
+            "maxLength": 100,
+            "type": "string"
+          },
+          "name": {
+            "description": "nil = keep; min=1 rejects an explicit \"\".",
+            "example": "Updated Area Name",
+            "maxLength": 255,
+            "minLength": 1,
+            "type": "string"
+          },
+          "postal_code": {
+            "example": "10002",
+            "maxLength": 20,
+            "type": "string"
+          },
+          "state_province": {
+            "example": "California",
+            "maxLength": 100,
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "updateSkill",
+      "title": "Update a skill",
+      "description": "Update a skill\n\nUpdates a skill's name, description, and/or active status. `is_active` is optional — omit the field entirely to keep the current value; send `false` to deactivate or `true` to reactivate. Deactivating a skill prevents new technician assignments but does not remove existing ones.",
+      "method": "PUT",
+      "path": "/skills/{id}",
+      "pathParams": [
+        "id"
+      ],
+      "queryParams": [],
+      "headerParams": [],
+      "bodyParams": [
+        "description",
+        "is_active",
+        "name"
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Skill ID (UUID)"
+          },
+          "description": {
+            "description": "nil = keep; \"\" clears the description.",
+            "example": "Repair of household water pipes",
+            "maxLength": 4000,
+            "type": "string"
+          },
+          "is_active": {
+            "example": true,
+            "type": "boolean"
+          },
+          "name": {
+            "description": "nil = keep; min=1 rejects an explicit \"\".",
+            "example": "Pipe Repair",
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
       "name": "updateTechnician",
       "title": "Update a technician",
       "description": "Update a technician\n\nUpdates mutable technician profile fields. `start_location_type=office` re-snapshots the current business address + coordinates (body `address`/`start_location_lat`/`start_location_long` ignored; requires business coordinates, else 400 BUSINESS_LOCATION_MISSING). `start_location_type=home` (or empty) uses the address + coordinates from the body.",
@@ -2809,6 +2980,99 @@
           "id",
           "business_group_id",
           "full_name"
+        ]
+      }
+    },
+    {
+      "name": "updateVehicle",
+      "title": "Update a vehicle",
+      "description": "Update a vehicle\n\nUpdates the vehicle details",
+      "method": "PUT",
+      "path": "/vehicles/{id}",
+      "pathParams": [
+        "id"
+      ],
+      "queryParams": [],
+      "headerParams": [],
+      "bodyParams": [
+        "brand",
+        "current_mileage",
+        "model",
+        "name",
+        "owner_id",
+        "plate_number",
+        "status",
+        "vehicle_type",
+        "year"
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Vehicle ID"
+          },
+          "brand": {
+            "description": "nil = keep; \"\" clears the field.",
+            "example": "Toyota",
+            "maxLength": 50,
+            "type": "string"
+          },
+          "current_mileage": {
+            "example": 75000,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "model": {
+            "example": "Hiace",
+            "maxLength": 50,
+            "type": "string"
+          },
+          "name": {
+            "description": "nil = keep. min=1 rejects an explicit \"\" (a vehicle needs a name);\nomitempty is what lets a nil pointer skip validation entirely.",
+            "example": "Updated Van Name",
+            "maxLength": 100,
+            "minLength": 1,
+            "type": "string"
+          },
+          "owner_id": {
+            "description": "nil = keep the current owner; \"\" clears it; a UUID sets it.",
+            "example": "550e8400-e29b-41d4-a716-446655440000",
+            "format": "uuid",
+            "type": "string"
+          },
+          "plate_number": {
+            "example": "XYZ-9999",
+            "maxLength": 20,
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "inactive",
+              "idle",
+              "on_job",
+              "maintenance"
+            ],
+            "example": "idle",
+            "type": "string"
+          },
+          "vehicle_type": {
+            "description": "nil = keep; a non-nil value must be a known enum member.",
+            "enum": [
+              "van",
+              "truck",
+              "car"
+            ],
+            "example": "van",
+            "type": "string"
+          },
+          "year": {
+            "example": 2024,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id"
         ]
       }
     }

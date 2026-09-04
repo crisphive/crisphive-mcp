@@ -28,7 +28,7 @@ drift.
 
 > **Stdio-only client?** This guide covers the hosted remote endpoint. For
 > clients that only speak stdio (or self-hosted setups) there is also a local
-> package, **`@crisphive/mcp`** on npm — the same 53 tools, each call an HTTPS
+> package, **`@crisphive/mcp`** on npm — the same 57 tools, each call an HTTPS
 > request to `/v1` with your `CRISPHIVE_API_KEY`. See the README's
 > "Local server" section.
 
