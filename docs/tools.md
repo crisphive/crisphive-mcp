@@ -1,6 +1,6 @@
 # Crisphive MCP — Tool Reference
 
-57 field-operations tools — job booking, quoting & schedule
+59 field-operations tools — job booking, quoting & schedule
 confirmation, appointment scheduling, crew/skill/availability matching,
 priority (P0–P3) & SLA management, emergency dispatch with cascade
 rescheduling, job moves, work-order tracking, dispatch data, CRM sync,
@@ -62,6 +62,13 @@ webhooks).
 | `listEmergencyCandidates` | `POST /v1/job-requests/emergency/candidates` | Ranked technicians for a P0 emergency insert — fastest arrival first, each with its displacement preview, plus a historical `crew_recommendation` (median crew size on comparable completed jobs; ALWAYS display its disclaimer). |
 | `previewEmergencyReschedule` | `POST /v1/job-requests/emergency/preview` | The full cascade WITHOUT writing: which jobs move per day — or, with `displacement_mode: "reassign"`, which are handed to another technician at their ORIGINAL time (`reassignments`). |
 | `commitEmergencyReschedule` | `POST /v1/job-requests/emergency/commit` | Apply the previewed emergency plan (locks + version fences; drift → `EMERGENCY_RESCHEDULE_PLAN_DRIFTED`, re-preview — in reassign mode some displaced jobs may already be re-staffed and notified). The emergency job must be `p0` and quoted; an unconfirmed job is auto-confirmed. Supports `idempotency_key`. |
+
+## Absence resolve — re-staff a sick technician's whole day
+
+| Tool | REST operation | Description |
+|---|---|---|
+| `previewAbsenceResolve` | `POST /v1/job-requests/absence/preview` | Solve, WITHOUT writing, the re-staffing of every single-person job on `technician_id`'s board for `date`…`until_date` (business-local `YYYY-MM-DD`, inclusive, ≤ 14 days; optional `job_ids` subset). Each job in `resolved[]` is handed to an alternate lead at its UNCHANGED window — the customer's appointment never moves, two overlapping jobs never land on the same alternate, the absent technician is never a candidate. `unresolved[]` carries a `reason_code` (`NO_QUALIFIED_TECH_FREE`, `CREW_JOB_UNSUPPORTED`, `MULTIDAY_UNSUPPORTED`, `IN_PROGRESS`); a partial plan is a normal result. `distance_km`/`travel_minutes` are ABSENT when unknown — never render `0 km`. `solver.duration_ms` is server planner time; `solver.deterministic` is true (same board ⇒ same plan). 409 `ABSENCE_RESOLVE_NO_ORPHANED_JOBS` = nothing on the board in that range. |
+| `commitAbsenceResolve` | `POST /v1/job-requests/absence/commit` | Apply the previewed plan atomically: pass `assignments[]` copied from `preview.resolved[]` (`job_id`, `to_technician_id`, `status_version`) — rows may be DROPPED, never added or re-pointed (commit VERIFIES, it does not solve). All assignments land in one transaction or none; each job's attention flag is cleared and its `status_version` bumped (the response echoes the post-commit value). Requires a time-off record covering the absence — approved, or pending and CONTAINED in the range (the commit approves those; a pending record WIDER than the range is never approved and is listed in `data.pending_wider_time_off_ids[]`); otherwise 409 `ABSENCE_RESOLVE_TIME_OFF_REQUIRED` with `data.uncovered_dates[]`/`data.uncovered_jobs[]` — record a sick-day time-off on the dashboard, then commit again. 409 `ABSENCE_RESOLVE_PLAN_DRIFTED` (`data.drifted[].reason` ∈ `version` \| `infeasible` \| `occupied`) means the board moved and no job was written — re-preview, then commit. Per-job `notification` evidence says what the customer routing WILL do (`dispatched` + channels, or `skipped` + reason), never proof of delivery. A restricted key needs `job_manage` for both tools and `schedule_manage` for commit. Supports `idempotency_key`. |
 
 ## Catalog — reference reads (discover the IDs used by the writes above)
 
