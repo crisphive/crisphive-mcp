@@ -156,7 +156,7 @@ Clients that only speak stdio can bridge with
 
 ### Local server (npm — `@crisphive/mcp`)
 
-This repository also ships a thin **local stdio server**: the same 59 tools
+This repository also ships a thin **local stdio server**: the same 61 tools
 (same names, same schemas — generated from the same `/v1` OpenAPI spec as the
 hosted endpoint), where each call is an HTTPS request to the Crisphive API
 with your key. No business logic runs locally.
@@ -224,7 +224,7 @@ PKCE. Full flow, scopes and token lifetimes:
 
 ## Tools
 
-59 tools, one per operation of the public `/v1` API — same names as the SDK
+61 tools, one per operation of the public `/v1` API — same names as the SDK
 methods (`listCustomers`, `createJobRequest`, …), derived from the same OpenAPI
 spec so REST and MCP never drift. Full reference:
 [docs/tools.md](docs/tools.md).
@@ -240,6 +240,7 @@ spec so REST and MCP never drift. Full reference:
 | **Scheduling actions** (drive the schedule) | `quoteJobRequest` · `confirmJobRequest` · `previewJobRequestMove` · `commitJobRequestMove` |
 | **Priority & emergency dispatch** (P0–P3, SLA, cascade) | `updateJobPriority` · `listEmergencyCandidates` · `previewEmergencyReschedule` · `commitEmergencyReschedule` |
 | **Absence resolve** (sick call — re-staff a technician's whole day) | `previewAbsenceResolve` · `commitAbsenceResolve` |
+| **Technician time off** (record a sick day / leave, read existing leave) | `createTechnicianTimeOff` · `listTechnicianTimeOff` |
 
 Typical agent flow:
 
@@ -265,7 +266,7 @@ Sick-call flow (a technician is out — re-staff every job on their board at its
 
 ```
 previewAbsenceResolve                    → who takes each job; nothing written
-  (record the day off: dashboard time-off, pending is enough)
+createTechnicianTimeOff                  → record the sick day (lands pending — enough for the commit)
 commitAbsenceResolve                     → apply exactly the previewed plan, all-or-nothing
 ```
 

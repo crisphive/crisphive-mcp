@@ -1028,6 +1028,65 @@
       }
     },
     {
+      "name": "createTechnicianTimeOff",
+      "title": "Record a technician's time off (sick day, leave)",
+      "description": "Record a technician's time off (sick day, leave)\n\nRecords a time-off block for a technician. The record is created PENDING; a business staff member approves it on the dashboard — EXCEPT for the sick-call flow, where `commitAbsenceResolve` approves the pending record that covers the absence itself. `start_datetime`/`end_datetime` are RFC3339 INSTANTS with an offset (e.g. `2030-06-15T04:00:00Z` for midnight Toronto), unlike the business-local naive datetimes used by scheduling calls — a whole day off is that day's local midnight to the next in UTC. Overlapping an existing record for the same technician is refused (`TIME_OFF_OVERLAP`); list `GET /technicians/{id}/time-off` first. Creating a record immediately flags the technician's jobs in that window as needing attention on the dispatch board. Supports Idempotency-Key.",
+      "method": "POST",
+      "path": "/technician-time-off",
+      "pathParams": [],
+      "queryParams": [],
+      "headerParams": [
+        {
+          "arg": "idempotency_key",
+          "header": "Idempotency-Key"
+        }
+      ],
+      "bodyParams": [
+        "end_datetime",
+        "reason",
+        "start_datetime",
+        "technician_id"
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "idempotency_key": {
+            "type": "string",
+            "description": "Unique key making retries safe: a repeat send with the same key replays the original response (header Idempotent-Replayed: true) instead of re-running the operation. Reusing a key with a different body returns 422 IDEMPOTENCY_KEY_REUSE. (sent as the Idempotency-Key header)"
+          },
+          "end_datetime": {
+            "description": "Block end — RFC3339 instant, must be after start_datetime. A whole day off runs local midnight to the next.",
+            "example": "2026-05-01T17:00:00Z",
+            "format": "date-time",
+            "type": "string"
+          },
+          "reason": {
+            "description": "Free-text reason, max 500 characters (e.g. \"Sick call 06:58\").",
+            "example": "Vacation",
+            "maxLength": 500,
+            "type": "string"
+          },
+          "start_datetime": {
+            "description": "Block start — an RFC3339 instant WITH offset (e.g. 2030-06-15T04:00:00Z = midnight Toronto EDT), not a business-local naive datetime.",
+            "example": "2026-05-01T08:00:00Z",
+            "format": "date-time",
+            "type": "string"
+          },
+          "technician_id": {
+            "description": "The technician taking time off (must belong to the business).",
+            "example": "550e8400-e29b-41d4-a716-446655440000",
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "end_datetime",
+          "start_datetime",
+          "technician_id"
+        ]
+      }
+    },
+    {
       "name": "createVehicle",
       "title": "Create a new vehicle",
       "description": "Create a new vehicle\n\nCreates a vehicle for the business fleet",
@@ -2138,6 +2197,70 @@
           "limit": {
             "type": "integer",
             "description": "Page size (default: 15, max: 1000)"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "listTechnicianTimeOff",
+      "title": "List time off for a specific technician",
+      "description": "List time off for a specific technician\n\nReturns the technician's time-off records (pending, approved, rejected, cancelled), paginated, optionally bounded by start_date/end_date (YYYY-MM-DD, inclusive overlap) and status. Read this before recording a new block (overlaps are refused) and to see whether an absence is already recorded before `commitAbsenceResolve`.",
+      "method": "GET",
+      "path": "/technicians/{id}/time-off",
+      "pathParams": [
+        "id"
+      ],
+      "queryParams": [
+        "page",
+        "limit",
+        "start_date",
+        "end_date",
+        "status_ids",
+        "keyword",
+        "since"
+      ],
+      "headerParams": [],
+      "bodyParams": [],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Technician ID"
+          },
+          "page": {
+            "type": "integer",
+            "description": "Page number (default 1)"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Items per page (default 15)"
+          },
+          "start_date": {
+            "type": "string",
+            "description": "Filter by start date (YYYY-MM-DD)"
+          },
+          "end_date": {
+            "type": "string",
+            "description": "Filter by end date (YYYY-MM-DD)"
+          },
+          "status_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "Filter by status (multi: pending|approved|rejected|cancelled)"
+          },
+          "keyword": {
+            "type": "string",
+            "description": "Search reason (case-insensitive substring)"
+          },
+          "since": {
+            "type": "string",
+            "description": "RFC3339 cursor for short-polling; echo back next_since from prior response"
           }
         },
         "required": [
