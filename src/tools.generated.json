@@ -2,9 +2,91 @@
   "basePath": "/v1",
   "tools": [
     {
+      "name": "commitAbsenceResolve",
+      "title": "Commit the previewed re-staffing of a technician's day",
+      "description": "Commit the previewed re-staffing of a technician's day\n\nApplies the plan returned by /absence/preview, ATOMICALLY: every assignment in one transaction (all or nothing), each job re-staffed onto its alternate at its unchanged window, its \"needs attention\" flag cleared, its status_version bumped. Commit VERIFIES and never re-solves — send `assignments[]` copied from `preview.resolved[]` (you may drop rows, never add or re-point them). Requires a time-off record covering EVERY day of the range for the technician (pending or approved); a pending one is APPROVED by the commit, because the engine's feasibility filter reads approved time-off only and without it the absent technician stays bookable everywhere else. The response mirrors the preview plus per-job `notification` evidence (dispatched | skipped + reason — what the routing WILL do, never proof of delivery), `attention_cleared`, and `time_off`. Supports Idempotency-Key. Requires job_manage AND schedule_manage (the approval is a scheduling action). See ABSENCE_RESOLVE_DESIGN.md.\n409 NEXT STEPS: ABSENCE_RESOLVE_TIME_OFF_REQUIRED — the absence is not recorded well enough to commit against: `data.uncovered_dates[]` (days no eligible record touches) and `data.uncovered_jobs[]` (jobs no single eligible record spans); eligible = approved records, plus PENDING records whose span lies INSIDE the range — a pending record WIDER than the range (somebody's leave request) is never approved by this commit and is listed in `data.pending_wider_time_off_ids[]` for a human to decide. Record a sick-day time-off via `data.create_via` (POST /business/technician-time-off, pending is enough), then commit again. ABSENCE_RESOLVE_PLAN_DRIFTED — the world moved since the preview; `data.drifted[]` names the job (job_id/short_code/expected_version) and `reason` says how: `version` (the row changed or left the technician's lane), `infeasible` (the alternate can no longer take it), `occupied` (the alternate's lane overlapped after the write). No job was written; `data.time_offs[]` lists any pending record the commit had already approved — re-preview, show the new plan, commit again. ABSENCE_RESOLVE_NO_ORPHANED_JOBS — the board is empty for the range.",
+      "method": "POST",
+      "path": "/job-requests/absence/commit",
+      "pathParams": [],
+      "queryParams": [],
+      "headerParams": [
+        {
+          "arg": "idempotency_key",
+          "header": "Idempotency-Key"
+        }
+      ],
+      "bodyParams": [
+        "assignments",
+        "date",
+        "technician_id",
+        "until_date"
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "idempotency_key": {
+            "type": "string",
+            "description": "Unique key making retries safe: a repeat send with the same key replays the original response (header Idempotent-Replayed: true) instead of re-running the operation. Reusing a key with a different body returns 422 IDEMPOTENCY_KEY_REUSE. (sent as the Idempotency-Key header)"
+          },
+          "assignments": {
+            "description": "The placements to apply, taken from preview.resolved[]. At least one.",
+            "items": {
+              "properties": {
+                "job_id": {
+                  "description": "The job to re-staff (from preview.resolved[].job_id).",
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "status_version": {
+                  "description": "The job's status_version at preview time (from preview.resolved[].status_version) — the drift fence.",
+                  "type": "integer"
+                },
+                "to_technician_id": {
+                  "description": "The alternate the preview chose (from preview.resolved[].to_technician_id).",
+                  "format": "uuid",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "job_id",
+                "status_version",
+                "to_technician_id"
+              ],
+              "type": "object"
+            },
+            "maxItems": 100,
+            "minItems": 1,
+            "type": "array"
+          },
+          "date": {
+            "description": "First day of the absence (YYYY-MM-DD, business-local) — must match the preview.",
+            "example": "2030-06-15",
+            "format": "date",
+            "type": "string"
+          },
+          "technician_id": {
+            "description": "The absent technician (must match the preview).",
+            "format": "uuid",
+            "type": "string"
+          },
+          "until_date": {
+            "description": "Last day, inclusive (YYYY-MM-DD) — must match the preview.",
+            "example": "2030-06-16",
+            "format": "date",
+            "type": "string"
+          }
+        },
+        "required": [
+          "assignments",
+          "date",
+          "technician_id"
+        ]
+      }
+    },
+    {
       "name": "commitEmergencyReschedule",
       "title": "Commit emergency insert + cascade reschedule",
-      "description": "Commit emergency insert + cascade reschedule\n\nApplies the cascade previewed by /emergency/preview: assigns the emergency job to the technician and pushes the displaced jobs back (or, with `displacement_mode=reassign`, re-staffs them onto their previewed alternates first), atomically. Supports Idempotency-Key. The server recomputes the plan under a lock and fences each job on its status_version — if anything changed since the preview it returns 409 EMERGENCY_RESCHEDULE_PLAN_DRIFTED (re-preview). Same body as preview + optional `emergency_expected_version`. Isolated feature (see EMERGENCY_RESCHEDULE_DESIGN.md).\n409 NEXT STEPS: EMERGENCY_RESCHEDULE_PLAN_DRIFTED — the schedule changed between your preview and this commit (another booking/move won a lane): call /preview again, show the fresh plan, then commit. EMERGENCY_RESCHEDULE_SLOT_OCCUPIED — landing window blocked by an immovable anchor (P0/crew/multi-day): another tech or time. Other codes — same remedies as /candidates.",
+      "description": "Commit emergency insert + cascade reschedule\n\nApplies the cascade previewed by /emergency/preview: assigns the emergency job to the technician and pushes the displaced jobs back (or, with `displacement_mode=reassign`, re-staffs them onto their previewed alternates first), atomically. Supports Idempotency-Key. The server recomputes the plan under a lock and fences each job on its status_version — if anything changed since the preview it returns 409 EMERGENCY_RESCHEDULE_PLAN_DRIFTED (re-preview). Same body as preview + optional `emergency_expected_version`. `after_hours_override=true` must match the preview it followed — it drops the non-working-day rejection (this endpoint never runs the technician's working-hours/time-off feasibility check; that only happens on /candidates), and the response carries an AFTER_HOURS warning; the committed job's activity feed also records who authorized the after-hours placement. Isolated feature (see EMERGENCY_RESCHEDULE_DESIGN.md).\n409 NEXT STEPS: EMERGENCY_RESCHEDULE_PLAN_DRIFTED — the schedule changed between your preview and this commit (another booking/move won a lane); `data.drifted[]` names the job(s) whose status_version moved when the fence can attribute it (absent, never empty, when only a length mismatch is known): call /preview again, show the fresh plan, then commit. EMERGENCY_RESCHEDULE_SLOT_OCCUPIED — landing window blocked by an immovable anchor (P0/crew/multi-day); `data.conflicts[]` names it: another tech or time. Other codes — same remedies and `data` shapes as /candidates. EMERGENCY_RESCHEDULE_NO_WORKING_DAY does NOT fire when after_hours_override=true.",
       "method": "POST",
       "path": "/job-requests/emergency/commit",
       "pathParams": [],
@@ -16,6 +98,7 @@
         }
       ],
       "bodyParams": [
+        "after_hours_override",
         "displacement_mode",
         "emergency_expected_version",
         "emergency_job_id",
@@ -30,6 +113,10 @@
           "idempotency_key": {
             "type": "string",
             "description": "Unique key making retries safe: a repeat send with the same key replays the original response (header Idempotent-Replayed: true) instead of re-running the operation. Reusing a key with a different body returns 422 IDEMPOTENCY_KEY_REUSE. (sent as the Idempotency-Key header)"
+          },
+          "after_hours_override": {
+            "description": "Place this P0 outside working hours / approved time-off — you have phoned\nthe technician and they agreed. Drops the non-working-day rejection; the\nresponse then carries an AFTER_HOURS warning. Double-booking, service\narea, required skills and the lead-tier rule still reject.",
+            "type": "boolean"
           },
           "displacement_mode": {
             "description": "Fate of displaced jobs: reschedule (default) or reassign — must match the preview.",
@@ -86,7 +173,7 @@
     {
       "name": "commitJobRequestMove",
       "title": "Commit a schedule-board job move",
-      "description": "Commit a schedule-board job move\n\nApplies the move previewed by /move/preview: places the job on the technician at the new time and pushes the displaced jobs back, atomically (per-tech advisory lock; the server recomputes the plan and fences each job on its status_version — drift since the preview returns 409 SCHEDULE_MOVE_PLAN_DRIFTED, re-preview). Same body as preview + optional `expected_version`. See SCHEDULE_BOARD_DESIGN.md.\n409 NEXT STEPS: SCHEDULE_MOVE_PLAN_DRIFTED — the schedule changed since your preview (or expected_move_ids no longer match): re-preview, show the fresh plan, commit again. All other codes — same remedies as /move/preview.",
+      "description": "Commit a schedule-board job move\n\nApplies the move previewed by /move/preview: places the job on the technician at the new time and pushes the displaced jobs back, atomically (per-tech advisory lock; the server recomputes the plan and fences each job on its status_version — drift since the preview returns 409 SCHEDULE_MOVE_PLAN_DRIFTED, re-preview). Same body as preview + optional `expected_version`. See SCHEDULE_BOARD_DESIGN.md.\n409 NEXT STEPS: SCHEDULE_MOVE_PLAN_DRIFTED — the schedule changed since your preview (or expected_move_ids/expected_member_ids no longer match): re-preview, show the fresh plan, commit again; carries no further `data` (the fence cannot attribute the drift to one specific job). All other codes — same remedies AND `data` shapes as /move/preview.",
       "method": "POST",
       "path": "/job-requests/{id}/move/commit",
       "pathParams": [
@@ -100,6 +187,7 @@
         }
       ],
       "bodyParams": [
+        "after_hours_override",
         "expected_member_ids",
         "expected_move_ids",
         "expected_version",
@@ -117,6 +205,10 @@
           "idempotency_key": {
             "type": "string",
             "description": "Unique key making retries safe: a repeat send with the same key replays the original response (header Idempotent-Replayed: true) instead of re-running the operation. Reusing a key with a different body returns 422 IDEMPOTENCY_KEY_REUSE. (sent as the Idempotency-Key header)"
+          },
+          "after_hours_override": {
+            "description": "AfterHoursOverride — drop the non-working-day rejection for a P0 whose\ntechnician the coordinator has already phoned. P0 only\n(JOB_REQUEST_AFTER_HOURS_REQUIRES_P0 otherwise), and the preview then\ncarries an AFTER_HOURS warning. Commit must repeat what the preview was\nrun with.",
+            "type": "boolean"
           },
           "expected_member_ids": {
             "description": "ExpectedMemberIDs — crew moves only: the FULL member set the preview\nstaffed (echo data.members[].technician_id). If the commit's re-plan\nwould staff a DIFFERENT set (a previewed replacement got booked in the\nmeantime), the commit is rejected with SCHEDULE_MOVE_PLAN_DRIFTED —\ncrew swaps are never approved unseen. Omit to opt out.",
@@ -169,7 +261,7 @@
     {
       "name": "confirmJobRequest",
       "title": "Confirm a booking on behalf of the customer",
-      "description": "Confirm a booking on behalf of the customer\n\nFires the customer-actor `confirm_booking` action from the BUSINESS surface (audited as business_on_behalf). Two uses: (1) LIVE — staff confirm a slot for a customer who booked by phone; (2) SANDBOX — the customer magic-token surface is live-only (a sandbox job's link can never reach a real customer), so this is the ONLY way to drive a sandbox test job past booking (book → quote → confirm → assign → complete). Body carries the customer-chosen scheduled_at (business-local naive datetime).\nDECISION TABLE — every 409 this endpoint returns, and the correct NEXT STEP (branch on error_code, never on the HTTP status):\n• JOB_REQUEST_STAGE_CONFLICT — the job changed since you read it (NOTE: every FAILED confirm attempt also bumps status_version by design). Next: re-GET the job, retry with the fresh status_version.\n• JOB_REQUEST_ACTION_NOT_PENDING — the job is no longer at the confirm step (usually: already confirmed). Next: re-GET and show current status; do not retry.\n• JOB_REQUEST_NO_TECHNICIAN_AVAILABLE — the TIME is infeasible for everyone (outside working hours / the customer window, or nobody qualifies). Next: pick another time via booking-windows / time-segments. NOT an emergency case — displacement cannot conjure capacity.\n• JOB_REQUEST_TECH_INFEASIBLE — the FORCED technician can never take the job then; `data.reason` says why: cannot_arrive_in_time (commute/shift-start — `data.earliest_feasible_at` (RFC3339 UTC) is the first same-day time they CAN be on site → offer it) | missing_required_skills | not_available_today | not_lead_tier. Next: keep the tech and reschedule to earliest_feasible_at+, OR keep the time and drop technician_id (auto-pick) / choose another tech from time-segments. NOT an emergency case.\n• JOB_REQUEST_P0_REQUIRES_DISPLACEMENT — the ONLY code that routes to the EMERGENCY flow: the job is P0, the tech qualifies, but the lane is genuinely occupied. Next: POST emergency/candidates → preview → commit (the commit auto-confirms). Caveat: if the occupying jobs are themselves P0 the preview will reject with EMERGENCY_RESCHEDULE_SLOT_OCCUPIED (P0 never displaces P0) — then pick another tech/time.",
+      "description": "Confirm a booking on behalf of the customer\n\nFires the customer-actor `confirm_booking` action from the BUSINESS surface (audited as business_on_behalf). Two uses: (1) LIVE — staff confirm a slot for a customer who booked by phone; (2) SANDBOX — the customer magic-token surface is live-only (a sandbox job's link can never reach a real customer), so this is the ONLY way to drive a sandbox test job past booking (book → quote → confirm → assign → complete). Body carries the customer-chosen scheduled_at (business-local naive datetime).\nDECISION TABLE — every 409 this endpoint returns, and the correct NEXT STEP (branch on error_code, never on the HTTP status):\n• JOB_REQUEST_STAGE_CONFLICT — the job changed since you read it (NOTE: every FAILED confirm attempt also bumps status_version by design). Next: re-GET the job, retry with the fresh status_version.\n• JOB_REQUEST_ACTION_NOT_PENDING — the job is no longer at the confirm step (usually: already confirmed). Next: re-GET and show current status; do not retry.\n• JOB_REQUEST_NO_TECHNICIAN_AVAILABLE — the TIME is infeasible for everyone (outside working hours / the customer window, or nobody qualifies). Best-effort `data` breakdown: `considered` (roster size checked), `blocked_by` (histogram of blockers[0].kind → count, only kinds that actually blocked someone), `truncated` (roster larger than the check covered). Next: pick another time via booking-windows / time-segments. NOT an emergency case — displacement cannot conjure capacity.\n• JOB_REQUEST_TECH_INFEASIBLE — the FORCED technician can never take the job then; `data.reason` says why (blockers[0].kind): outside_service_area | missing_required_skills | not_lead_tier | no_working_day | on_time_off | off_shift | visit_too_long | cannot_arrive_in_time (see `data.earliest_feasible_at`, RFC3339 UTC — the first same-day time they CAN be on site → offer it) | not_available_today (diagnosis unavailable). `data.blockers[]` names EVERY cause, most-structural first (`data.technician` carries an id; `name` is always empty on this confirm path today — nothing here calls the name lookup move's TECH_NOT_FEASIBLE payload uses); a UI that reads only `reason` still works. Next: keep the tech and reschedule to earliest_feasible_at+, OR keep the time and drop technician_id (auto-pick) / choose another tech from time-segments. NOT an emergency case.\n• JOB_REQUEST_P0_REQUIRES_DISPLACEMENT — the ONLY code that routes to the EMERGENCY flow: the job is P0, the tech qualifies, but the lane is genuinely occupied. Next: POST emergency/candidates → preview → commit (the commit auto-confirms). Caveat: if the occupying jobs are themselves P0 the preview will reject with EMERGENCY_RESCHEDULE_SLOT_OCCUPIED (P0 never displaces P0) — then pick another tech/time.",
       "method": "POST",
       "path": "/job-requests/{id}/confirm",
       "pathParams": [
@@ -183,6 +275,7 @@
         }
       ],
       "bodyParams": [
+        "after_hours_override",
         "arrival_window_minutes",
         "scheduled_at",
         "status_version",
@@ -198,6 +291,10 @@
           "idempotency_key": {
             "type": "string",
             "description": "Unique key making retries safe: a repeat send with the same key replays the original response (header Idempotent-Replayed: true) instead of re-running the operation. Reusing a key with a different body returns 422 IDEMPOTENCY_KEY_REUSE. (sent as the Idempotency-Key header)"
+          },
+          "after_hours_override": {
+            "description": "AfterHoursOverride (BUSINESS confirm only): schedule this P0 outside the\ntechnician's working hours or approved time-off — you have phoned them and\nthey agreed. Requires priority p0, a single-person job, and technician_id.\nDouble-booking, service area, required skills and the lead-tier rule still\nreject. Deliberately NOT a binding-tag rule: gin evaluates tags before the\nhandler, which would make the three AFTER_HOURS codes unreachable.",
+            "type": "boolean"
           },
           "arrival_window_minutes": {
             "description": "ArrivalWindowMinutes = width (phút) của arrival-window ô khách bấm ở\nslot-picker (chính là time_slot_step_minutes, mặc định 30). Persist để\npost-confirm detail render lại đúng window. Optional; bounds ([5, 240],\nkhớp slot-picker step) validate ở usecase — single authority, một error\ncode (JOB_REQUEST_INVALID_INPUT).",
@@ -774,6 +871,7 @@
         "job_title",
         "join_date",
         "lead_ids",
+        "notify",
         "phone",
         "service_area_ids",
         "start_location_lat",
@@ -884,6 +982,10 @@
             "maxItems": 50,
             "type": "array"
           },
+          "notify": {
+            "description": "Whether to send the new member the \"you have been added to {business}\"\nmessage (email when an email was supplied, SMS when a phone was, both\nwhen both). Omitted or true sends it; false stays silent. Set false for\nbulk imports so seeding a roster does not text everybody at once.",
+            "type": "boolean"
+          },
           "phone": {
             "description": "Phone number in E.164 international format: a leading `+` and the country\ncode, e.g. `+16135550188`. A bare national number (`6135550188`) is\nREJECTED with PHONE_INVALID — there is no default region to guess the\ncountry from. At least one of phone/email is required (identity resolution key).",
             "maxLength": 50,
@@ -922,6 +1024,65 @@
         "required": [
           "business_group_id",
           "full_name"
+        ]
+      }
+    },
+    {
+      "name": "createTechnicianTimeOff",
+      "title": "Record a technician's time off (sick day, leave)",
+      "description": "Record a technician's time off (sick day, leave)\n\nRecords a time-off block for a technician. The record is created PENDING; a business staff member approves it on the dashboard — EXCEPT for the sick-call flow, where `commitAbsenceResolve` approves the pending record that covers the absence itself. `start_datetime`/`end_datetime` are RFC3339 INSTANTS with an offset (e.g. `2030-06-15T04:00:00Z` for midnight Toronto), unlike the business-local naive datetimes used by scheduling calls — a whole day off is that day's local midnight to the next in UTC. Overlapping an existing record for the same technician is refused (`TIME_OFF_OVERLAP`); list `GET /technicians/{id}/time-off` first. Creating a record immediately flags the technician's jobs in that window as needing attention on the dispatch board. Supports Idempotency-Key.",
+      "method": "POST",
+      "path": "/technician-time-off",
+      "pathParams": [],
+      "queryParams": [],
+      "headerParams": [
+        {
+          "arg": "idempotency_key",
+          "header": "Idempotency-Key"
+        }
+      ],
+      "bodyParams": [
+        "end_datetime",
+        "reason",
+        "start_datetime",
+        "technician_id"
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "idempotency_key": {
+            "type": "string",
+            "description": "Unique key making retries safe: a repeat send with the same key replays the original response (header Idempotent-Replayed: true) instead of re-running the operation. Reusing a key with a different body returns 422 IDEMPOTENCY_KEY_REUSE. (sent as the Idempotency-Key header)"
+          },
+          "end_datetime": {
+            "description": "Block end — RFC3339 instant, must be after start_datetime. A whole day off runs local midnight to the next.",
+            "example": "2026-05-01T17:00:00Z",
+            "format": "date-time",
+            "type": "string"
+          },
+          "reason": {
+            "description": "Free-text reason, max 500 characters (e.g. \"Sick call 06:58\").",
+            "example": "Vacation",
+            "maxLength": 500,
+            "type": "string"
+          },
+          "start_datetime": {
+            "description": "Block start — an RFC3339 instant WITH offset (e.g. 2030-06-15T04:00:00Z = midnight Toronto EDT), not a business-local naive datetime.",
+            "example": "2026-05-01T08:00:00Z",
+            "format": "date-time",
+            "type": "string"
+          },
+          "technician_id": {
+            "description": "The technician taking time off (must belong to the business).",
+            "example": "550e8400-e29b-41d4-a716-446655440000",
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "end_datetime",
+          "start_datetime",
+          "technician_id"
         ]
       }
     },
@@ -1502,13 +1663,14 @@
     {
       "name": "listEmergencyCandidates",
       "title": "Rank technicians for a P0 emergency insert",
-      "description": "Rank technicians for a P0 emergency insert\n\nReturns the technicians who could take the emergency job at the requested start, ranked FASTEST-ARRIVAL first (arrival beats route efficiency for a P0). The response also carries a historical `crew_recommendation` (median crew size on comparable completed jobs + mandatory disclaimer — AC-2). Booked technicians are still candidates — each entry carries the displacement preview (which lower-priority jobs would be pushed, per day) that committing to them would cause; total_moves=0 means a free slot. P0 jobs are never displaced; P1 only by a P0. ETA is estimated from the technician's start location (no live GPS). Feed the chosen technician_id into emergency/preview + emergency/commit.\n409 NEXT STEPS: EMERGENCY_RESCHEDULE_NOT_ELIGIBLE — the job cannot be emergency-inserted (not P0, already started/completed/archived, or not quoted): fix the job state or use a normal confirm. EMERGENCY_RESCHEDULE_CREW_UNSUPPORTED — crew jobs cannot use the emergency flow (v1): staff via confirm/reassign instead. EMERGENCY_RESCHEDULE_MULTIDAY_UNSUPPORTED — a confirmed multi-day job cannot be re-inserted (v1): use the normal reassign flow. EMERGENCY_RESCHEDULE_NO_WORKING_DAY — the chosen date has no working hours: pick a working day. EMERGENCY_RESCHEDULE_IN_PAST — start time already passed: pick a future time.",
+      "description": "Rank technicians for a P0 emergency insert\n\nReturns the technicians who could take the emergency job at the requested start, ranked FASTEST-ARRIVAL first (arrival beats route efficiency for a P0). The response also carries a historical `crew_recommendation` (median crew size on comparable completed jobs + mandatory disclaimer — AC-2). Booked technicians are still candidates — each entry carries the displacement preview (which lower-priority jobs would be pushed, per day) that committing to them would cause; total_moves=0 means a free slot. P0 jobs are never displaced; P1 only by a P0. ETA is estimated from the technician's start location (no live GPS). `after_hours_override=true` — the coordinator has phoned the technician — drops the non-working-day rejection AND each candidate's working-hours/time-off feasibility check; an affected candidate carries a per-technician TIME_OFF_OVERLAP warning instead. This is THE phone list for an after-hours insert: it ranks even on a day with no working hours once the flag is set. Feed the chosen technician_id into emergency/preview + emergency/commit.\n409 NEXT STEPS: EMERGENCY_RESCHEDULE_NOT_ELIGIBLE — the job cannot be emergency-inserted; `data.failed_precondition` names which (not_quoted | archived | completed | not_p0 | smart_assign_unavailable): fix the job state or use a normal confirm. EMERGENCY_RESCHEDULE_CREW_UNSUPPORTED — crew jobs cannot use the emergency flow (v1, `data.crew_size` = lead + buddies): staff via confirm/reassign instead. EMERGENCY_RESCHEDULE_MULTIDAY_UNSUPPORTED — either a confirmed multi-day job (`data.session_count`/`data.session_dates`; use the normal reassign flow) or a single visit longer than the structural span bound, in which case `data.reason=visit_too_long` + `data.blockers[0]` (visit_minutes/max_minutes) name it — no remedy but a shorter visit. EMERGENCY_RESCHEDULE_NO_WORKING_DAY — the chosen date has no working hours (`data.business_timezone`/`data.requested_weekday`): pick a working day, or set after_hours_override=true (the coordinator has phoned someone) to rank candidates anyway. EMERGENCY_RESCHEDULE_IN_PAST — start time already passed: pick a future time; `data` carries the timezone the naive start_at was read in (`business_timezone`) plus the instant it resolved to, so a start that looks future on the caller's own clock can be diagnosed without guessing.",
       "method": "POST",
       "path": "/job-requests/emergency/candidates",
       "pathParams": [],
       "queryParams": [],
       "headerParams": [],
       "bodyParams": [
+        "after_hours_override",
         "emergency_job_id",
         "limit",
         "mode",
@@ -1517,6 +1679,10 @@
       "inputSchema": {
         "type": "object",
         "properties": {
+          "after_hours_override": {
+            "description": "Place this P0 outside working hours / approved time-off — you have phoned\nthe technician and they agreed. Drops the non-working-day rejection; the\nresponse then carries an AFTER_HOURS warning. Double-booking, service\narea, required skills and the lead-tier rule still reject.",
+            "type": "boolean"
+          },
           "emergency_job_id": {
             "description": "ID of the P0 job to place.",
             "format": "uuid",
@@ -2039,6 +2205,70 @@
       }
     },
     {
+      "name": "listTechnicianTimeOff",
+      "title": "List time off for a specific technician",
+      "description": "List time off for a specific technician\n\nReturns the technician's time-off records (pending, approved, rejected, cancelled), paginated, optionally bounded by start_date/end_date (YYYY-MM-DD, inclusive overlap) and status. Read this before recording a new block (overlaps are refused) and to see whether an absence is already recorded before `commitAbsenceResolve`.",
+      "method": "GET",
+      "path": "/technicians/{id}/time-off",
+      "pathParams": [
+        "id"
+      ],
+      "queryParams": [
+        "page",
+        "limit",
+        "start_date",
+        "end_date",
+        "status_ids",
+        "keyword",
+        "since"
+      ],
+      "headerParams": [],
+      "bodyParams": [],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Technician ID"
+          },
+          "page": {
+            "type": "integer",
+            "description": "Page number (default 1)"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Items per page (default 15)"
+          },
+          "start_date": {
+            "type": "string",
+            "description": "Filter by start date (YYYY-MM-DD)"
+          },
+          "end_date": {
+            "type": "string",
+            "description": "Filter by end date (YYYY-MM-DD)"
+          },
+          "status_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "description": "Filter by status (multi: pending|approved|rejected|cancelled)"
+          },
+          "keyword": {
+            "type": "string",
+            "description": "Search reason (case-insensitive substring)"
+          },
+          "since": {
+            "type": "string",
+            "description": "RFC3339 cursor for short-polling; echo back next_since from prior response"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
       "name": "listVehicles",
       "title": "List vehicles",
       "description": "List vehicles\n\nReturns the business's fleet: paginated service vehicles (vans/trucks) with operational status (idle, on job, maintenance) — the fleet inventory behind crew carpooling and job mobilization. Supports the `since` cursor for incremental fleet sync.",
@@ -2081,15 +2311,71 @@
       }
     },
     {
+      "name": "previewAbsenceResolve",
+      "title": "Preview re-staffing a technician's whole day (sick call)",
+      "description": "Preview re-staffing a technician's whole day (sick call)\n\nSolves (WITHOUT writing) the re-staffing of every job on a technician's board for a date range: each job is handed to an ALTERNATE lead technician at its UNCHANGED window — the customer's appointment never moves, two overlapping jobs never land on the same alternate, and the absent technician is never a candidate. `date`/`until_date` are business-local calendar days (inclusive, ≤ 14 days). Jobs the planner cannot re-staff come back in `unresolved` with a `reason_code` (no qualified technician free / crew job / multi-day job / already in progress) — a partial plan is a normal 200, not an error. `solver.duration_ms` is server-side planner time; `solver.deterministic` is true (same input ⇒ same plan). Read-only, safe to repeat; copy `resolved[]` into the commit body. No time-off record is required to preview. See ABSENCE_RESOLVE_DESIGN.md.",
+      "method": "POST",
+      "path": "/job-requests/absence/preview",
+      "pathParams": [],
+      "queryParams": [],
+      "headerParams": [],
+      "bodyParams": [
+        "date",
+        "job_ids",
+        "technician_id",
+        "until_date"
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "description": "First day of the absence — a business-local calendar day (YYYY-MM-DD).",
+            "example": "2030-06-15",
+            "format": "date",
+            "type": "string"
+          },
+          "job_ids": {
+            "description": "Optional subset of the technician's jobs to plan for; every id must be\non their board inside the range (else ABSENCE_RESOLVE_INVALID_INPUT with\ndata.job_ids naming the strangers). Omitted = every job in the range.",
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 100,
+            "type": "array"
+          },
+          "technician_id": {
+            "description": "The absent technician (must belong to the business).",
+            "format": "uuid",
+            "type": "string"
+          },
+          "until_date": {
+            "description": "Last day of the absence, inclusive (YYYY-MM-DD). Omitted = date. Must not\nprecede date; the range is capped at 14 days. Both rules are checked in\nthe usecase (ABSENCE_RESOLVE_INVALID_INPUT, data.field) — a cross-field\nbinding tag would answer before the code that names the problem.",
+            "example": "2030-06-16",
+            "format": "date",
+            "type": "string"
+          },
+          "idempotency_key": {
+            "type": "string",
+            "description": "Optional idempotency key (forwarded as the Idempotency-Key header). Reuse the same value when retrying so the operation runs at most once."
+          }
+        },
+        "required": [
+          "date",
+          "technician_id"
+        ]
+      }
+    },
+    {
       "name": "previewEmergencyReschedule",
       "title": "Preview emergency insert + cascade reschedule",
-      "description": "Preview emergency insert + cascade reschedule\n\nComputes (WITHOUT writing) the cascade of inserting an emergency job onto a technician at a chosen time: where the emergency lands + every job pushed back, grouped per business-local day. `displacement_mode=reassign` instead hands each displaced job to another feasible technician at its ORIGINAL window (same-day promise) — jobs with no alternate capacity fall back to reschedule and stay in `days`. `mode=overtime` keeps everyone same-day (tech works late); `mode=next_day` rolls overflow to the next working day(s). Read-only — safe to call repeatedly; commit is a separate endpoint. Isolated feature (see EMERGENCY_RESCHEDULE_DESIGN.md).\n409 NEXT STEPS: EMERGENCY_RESCHEDULE_SLOT_OCCUPIED — the landing window is blocked by a job the cascade may NOT move (another P0, a crew or multi-day job): choose another technician (walk the /candidates ranking) or another time; displacement never touches P0/crew/multi-day anchors. EMERGENCY_RESCHEDULE_NOT_ELIGIBLE / CREW_UNSUPPORTED / MULTIDAY_UNSUPPORTED / NO_WORKING_DAY / IN_PAST — same remedies as /candidates.",
+      "description": "Preview emergency insert + cascade reschedule\n\nComputes (WITHOUT writing) the cascade of inserting an emergency job onto a technician at a chosen time: where the emergency lands + every job pushed back, grouped per business-local day. `displacement_mode=reassign` instead hands each displaced job to another feasible technician at its ORIGINAL window (same-day promise) — jobs with no alternate capacity fall back to reschedule and stay in `days`. `mode=overtime` keeps everyone same-day (tech works late); `mode=next_day` rolls overflow to the next working day(s). `after_hours_override=true` — the coordinator has phoned the technician — drops the non-working-day rejection; the response then carries an AFTER_HOURS warning naming how far outside the window the insert sits. This endpoint never runs the technician's working-hours/time-off feasibility check (that only happens on /candidates) — it validates the named technician exists and builds the cascade. Read-only — safe to call repeatedly; commit is a separate endpoint. Isolated feature (see EMERGENCY_RESCHEDULE_DESIGN.md).\n409 NEXT STEPS: EMERGENCY_RESCHEDULE_SLOT_OCCUPIED — the landing window is blocked by a job the cascade may NOT move (another P0, a crew or multi-day job); `data.conflicts[]` names each blocking job (short_code/start_at/end_at/frozen_because): choose another technician (walk the /candidates ranking) or another time; displacement never touches P0/crew/multi-day anchors. EMERGENCY_RESCHEDULE_NOT_ELIGIBLE / CREW_UNSUPPORTED / MULTIDAY_UNSUPPORTED / IN_PAST — same remedies and `data` shapes as /candidates. EMERGENCY_RESCHEDULE_NO_WORKING_DAY does NOT fire when after_hours_override=true.",
       "method": "POST",
       "path": "/job-requests/emergency/preview",
       "pathParams": [],
       "queryParams": [],
       "headerParams": [],
       "bodyParams": [
+        "after_hours_override",
         "displacement_mode",
         "emergency_job_id",
         "mode",
@@ -2099,6 +2385,10 @@
       "inputSchema": {
         "type": "object",
         "properties": {
+          "after_hours_override": {
+            "description": "Place this P0 outside working hours / approved time-off — you have phoned\nthe technician and they agreed. Drops the non-working-day rejection; the\nresponse then carries an AFTER_HOURS warning. Double-booking, service\narea, required skills and the lead-tier rule still reject.",
+            "type": "boolean"
+          },
           "displacement_mode": {
             "description": "Fate of displaced jobs: reschedule (default — pushed to later windows) or reassign (handed to another feasible technician at their ORIGINAL time; no-capacity jobs fall back to reschedule).",
             "enum": [
@@ -2146,7 +2436,7 @@
     {
       "name": "previewJobRequestMove",
       "title": "Preview a schedule-board job move",
-      "description": "Preview a schedule-board job move\n\nComputes (WITHOUT writing) the outcome of moving a confirmed job to a new time and/or technician: where it lands, every later job pushed back per `mode`, and the warnings the coordinator would accept (displaced jobs leaving their confirmed windows, overtime). Same technician = pure time move; different technician = manual reassign. Read-only — safe to call repeatedly while dragging; commit is a separate endpoint. See SCHEDULE_BOARD_DESIGN.md.\nWarning detail: a TECH_NOT_FEASIBLE warning carries `reason` = `cannot_arrive_in_time` (commute from the tech day-start location / shift start; `earliest_feasible_at` (RFC3339 UTC) is the first same-day time they CAN be on site — suggest it as the drop slot) | `missing_required_skills` | `not_available_today` (no working hours, approved time off, or outside the service area) | `not_lead_tier`. For a P0 move this warning is advisory (coordinator may commit anyway); for p1/p2/p3 the same condition is the hard 409 SCHEDULE_MOVE_TECH_INFEASIBLE.\n409 NEXT STEPS: SCHEDULE_MOVE_NOT_ELIGIBLE (job unconfirmed/unquoted/archived/completed — not movable) · SCHEDULE_MOVE_IN_PROGRESS (tech already executing — do not move) · SCHEDULE_MOVE_IN_PAST (pick a future time) · SCHEDULE_MOVE_SLOT_OCCUPIED (landing window blocked by an immovable anchor — another tech/time) · SCHEDULE_MOVE_TECH_INFEASIBLE (non-P0 hard block: target tech not qualified/available — its `data` carries `technician_id`, `reason` (same catalog as the TECH_NOT_FEASIBLE warning) and, for `cannot_arrive_in_time`, `earliest_feasible_at` (RFC3339 UTC) to suggest as the drop slot; change tech or time) · SCHEDULE_MOVE_MULTIDAY_UNSUPPORTED (multi-day jobs not movable v1) · SCHEDULE_MOVE_NO_WORKING_DAY (pick a working day) · SCHEDULE_MOVE_REQUIRES_FREE_SLOT (non-P0 moves may not displace — free capacity only, unless the owner enables allow_non_p0_displacement) · SCHEDULE_MOVE_CREW_UNSTAFFABLE (a crew slot has no feasible replacement at the new time — another time). A landing outside the customer-confirmed window is NOT an error — it returns 200 with a MOVED_OUTSIDE_WINDOW warning (customer_window attached) that the coordinator overrides.",
+      "description": "Preview a schedule-board job move\n\nComputes (WITHOUT writing) the outcome of moving a confirmed job to a new time and/or technician: where it lands, every later job pushed back per `mode`, and the warnings the coordinator would accept (displaced jobs leaving their confirmed windows, overtime). Same technician = pure time move; different technician = manual reassign. Read-only — safe to call repeatedly while dragging; commit is a separate endpoint. See SCHEDULE_BOARD_DESIGN.md.\nWarning detail: a TECH_NOT_FEASIBLE warning carries `reason` (= `blockers[0].kind`) = `outside_service_area` | `missing_required_skills` | `not_lead_tier` | `no_working_day` | `on_time_off` | `off_shift` | `visit_too_long` | `cannot_arrive_in_time` (commute from the tech day-start location / shift start; `earliest_feasible_at`, RFC3339 UTC, is the first same-day time they CAN be on site — suggest it as the drop slot) | `not_available_today` (diagnosis unavailable). `blockers[]` names EVERY hard filter that failed, most-structural first — a client reading only `reason` still works. For a P0 move this warning is advisory (coordinator may commit anyway) and carries the SAME `blockers[]` a p1/p2/p3 move would get as the hard 409 SCHEDULE_MOVE_TECH_INFEASIBLE below.\n409 NEXT STEPS: SCHEDULE_MOVE_NOT_ELIGIBLE (job unconfirmed/unquoted/archived/completed — `data.failed_precondition` names which) · SCHEDULE_MOVE_IN_PROGRESS (tech already executing — `data.fired_actions[]` lists the actions already fired; do not move) · SCHEDULE_MOVE_IN_PAST (pick a future time — its `data` carries `business_timezone`, the naive `start_at` and the `start_at_utc` it resolved to, which is what tells a caller whose own clock says otherwise where the difference came from) · SCHEDULE_MOVE_SLOT_OCCUPIED (landing window blocked by an immovable anchor; `data.conflicts[]` names it — another tech/time) · SCHEDULE_MOVE_TECH_INFEASIBLE (non-P0 hard block: target tech not qualified/available — its `data` carries `technician` (id+name), `reason` (same catalog as the TECH_NOT_FEASIBLE warning above), `blockers[]` (every cause, most-structural first) and, for `cannot_arrive_in_time`, `earliest_feasible_at` (RFC3339 UTC) to suggest as the drop slot; change tech or time) · SCHEDULE_MOVE_MULTIDAY_UNSUPPORTED (multi-day jobs not movable v1 — `data.session_count`/`data.session_dates`) · SCHEDULE_MOVE_NO_WORKING_DAY (`data.business_timezone`/`data.requested_weekday` — pick a working day, or set after_hours_override=true for a P0 whose technician has been phoned) · SCHEDULE_MOVE_REQUIRES_FREE_SLOT (non-P0 moves may not displace — `data.would_push[]` names the jobs that would be pushed, `data.allow_non_p0_displacement: false` names the setting that would permit it, unless the crew case sets `data.crew_never_displaces: true` instead — free capacity only) · SCHEDULE_MOVE_CREW_UNSTAFFABLE (a crew slot has no feasible replacement at the new time — another time). A landing outside the customer-confirmed window is NOT an error — it returns 200 with a MOVED_OUTSIDE_WINDOW warning (customer_window attached) that the coordinator overrides.",
       "method": "POST",
       "path": "/job-requests/{id}/move/preview",
       "pathParams": [
@@ -2155,6 +2445,7 @@
       "queryParams": [],
       "headerParams": [],
       "bodyParams": [
+        "after_hours_override",
         "mode",
         "start_at",
         "technician_id"
@@ -2165,6 +2456,10 @@
           "id": {
             "type": "string",
             "description": "Job request ID (UUID or short_code)"
+          },
+          "after_hours_override": {
+            "description": "AfterHoursOverride — drop the non-working-day rejection for a P0 whose\ntechnician the coordinator has already phoned. P0 only\n(JOB_REQUEST_AFTER_HOURS_REQUIRES_P0 otherwise), and the preview then\ncarries an AFTER_HOURS warning. Commit must repeat what the preview was\nrun with.",
+            "type": "boolean"
           },
           "mode": {
             "description": "Cascade mode for displaced jobs: overtime = stay same-day (tech works late); next_day = overflow rolls to the next working day.",
