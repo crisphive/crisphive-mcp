@@ -4,7 +4,7 @@
     {
       "name": "commitAbsenceResolve",
       "title": "Commit the previewed re-staffing of a technician's day",
-      "description": "Commit the previewed re-staffing of a technician's day\n\nApplies the plan returned by /absence/preview, ATOMICALLY: every assignment in one transaction (all or nothing), each job re-staffed onto its alternate at its unchanged window, its \"needs attention\" flag cleared, its status_version bumped. Commit VERIFIES and never re-solves — send `assignments[]` copied from `preview.resolved[]` (you may drop rows, never add or re-point them). Requires a time-off record covering EVERY day of the range for the technician (pending or approved); a pending one is APPROVED by the commit, because the engine's feasibility filter reads approved time-off only and without it the absent technician stays bookable everywhere else. The response mirrors the preview plus per-job `notification` evidence (dispatched | skipped + reason — what the routing WILL do, never proof of delivery), `attention_cleared`, and `time_off`. Supports Idempotency-Key. Requires job_manage AND schedule_manage (the approval is a scheduling action). See ABSENCE_RESOLVE_DESIGN.md.\n409 NEXT STEPS: ABSENCE_RESOLVE_TIME_OFF_REQUIRED — the absence is not recorded well enough to commit against: `data.uncovered_dates[]` (days no eligible record touches) and `data.uncovered_jobs[]` (jobs no single eligible record spans); eligible = approved records, plus PENDING records whose span lies INSIDE the range — a pending record WIDER than the range (somebody's leave request) is never approved by this commit and is listed in `data.pending_wider_time_off_ids[]` for a human to decide. Record a sick-day time-off via `data.create_via` (POST /business/technician-time-off, pending is enough), then commit again. ABSENCE_RESOLVE_PLAN_DRIFTED — the world moved since the preview; `data.drifted[]` names the job (job_id/short_code/expected_version) and `reason` says how: `version` (the row changed or left the technician's lane), `infeasible` (the alternate can no longer take it), `occupied` (the alternate's lane overlapped after the write). No job was written; `data.time_offs[]` lists any pending record the commit had already approved — re-preview, show the new plan, commit again. ABSENCE_RESOLVE_NO_ORPHANED_JOBS — the board is empty for the range.",
+      "description": "Commit the previewed re-staffing of a technician's day\n\nApplies the plan returned by /absence/preview, ATOMICALLY: every assignment in one transaction (all or nothing), each job re-staffed onto its alternate at its unchanged window, its \"needs attention\" flag cleared, its status_version bumped. Commit VERIFIES and never re-solves — send `assignments[]` copied from `preview.resolved[]` (you may drop rows, never add or re-point them) and, to ACCEPT a priced alternative from `preview.unresolved[].alternatives[]`, the same row plus its `alternative_kind` and (for a reschedule kind) its `start_at`/`end_at`; the engine re-checks that technician at that window under exactly that relaxation. A reschedule kind rewrites `scheduled_at`, notifies the customer of the NEW TIME (`job_rescheduled`, never `tech_reassigned` on top) and fires `job_request.rescheduled`; the response row then carries `alternative_kind`, `cost`, `original_start_at`/`original_end_at` and `window_preserved: false`. Requires a time-off record covering EVERY day of the range for the technician (pending or approved); a pending one is APPROVED by the commit, because the engine's feasibility filter reads approved time-off only and without it the absent technician stays bookable everywhere else. The response mirrors the preview plus per-job `notification` evidence (dispatched | skipped + reason — what the routing WILL do, never proof of delivery), `attention_cleared`, and `time_off`. Supports Idempotency-Key. Requires job_manage AND schedule_manage (the approval is a scheduling action). See ABSENCE_RESOLVE_DESIGN.md.\n409 NEXT STEPS: ABSENCE_RESOLVE_TIME_OFF_REQUIRED — the absence is not recorded well enough to commit against: `data.uncovered_dates[]` (days no eligible record touches) and `data.uncovered_jobs[]` (jobs no single eligible record spans); eligible = approved records, plus PENDING records whose span lies INSIDE the range — a pending record WIDER than the range (somebody's leave request) is never approved by this commit and is listed in `data.pending_wider_time_off_ids[]` for a human to decide. Record a sick-day time-off via `data.create_via` (POST /business/technician-time-off, pending is enough), then commit again. ABSENCE_RESOLVE_PLAN_DRIFTED — the world moved since the preview; `data.drifted[]` names the job (job_id/short_code/expected_version) and `reason` says how: `version` (the row changed or left the technician's lane), `infeasible` (the alternate can no longer take it), `occupied` (the alternate's lane overlapped after the write). No job was written; `data.time_offs[]` lists any pending record the commit had already approved — re-preview, show the new plan, commit again. ABSENCE_RESOLVE_NO_ORPHANED_JOBS — the board is empty for the range.",
       "method": "POST",
       "path": "/job-requests/absence/commit",
       "pathParams": [],
@@ -32,17 +32,35 @@
             "description": "The placements to apply, taken from preview.resolved[]. At least one.",
             "items": {
               "properties": {
+                "alternative_kind": {
+                  "description": "Accepting an alternative: its kind, copied from alternatives[].kind. Omit for a strict placement from resolved[].\nAn unknown kind is ABSENCE_RESOLVE_INVALID_INPUT reason=unknown_alternative_kind (checked in the usecase, not at the binder).",
+                  "enum": [
+                    "reassign_out_of_area",
+                    "reschedule_same_day",
+                    "reschedule_later_day"
+                  ],
+                  "type": "string"
+                },
+                "end_at": {
+                  "format": "date-time",
+                  "type": "string"
+                },
                 "job_id": {
-                  "description": "The job to re-staff (from preview.resolved[].job_id).",
+                  "description": "The job to re-staff (from preview.resolved[].job_id or preview.unresolved[].job_id).",
                   "format": "uuid",
                   "type": "string"
                 },
+                "start_at": {
+                  "description": "REQUIRED for a reschedule kind: the new window, copied from alternatives[].start_at / end_at (RFC3339 UTC).\nMust be absent (or equal to the current window) for a strict or reassign_out_of_area placement.",
+                  "format": "date-time",
+                  "type": "string"
+                },
                 "status_version": {
-                  "description": "The job's status_version at preview time (from preview.resolved[].status_version) — the drift fence.",
+                  "description": "The job's status_version at preview time — the drift fence.",
                   "type": "integer"
                 },
                 "to_technician_id": {
-                  "description": "The alternate the preview chose (from preview.resolved[].to_technician_id).",
+                  "description": "The technician receiving the job (from preview.resolved[].to_technician_id or alternatives[].to_technician_id).",
                   "format": "uuid",
                   "type": "string"
                 }
@@ -301,8 +319,9 @@
             "type": "integer"
           },
           "scheduled_at": {
-            "description": "Chosen start time — business-local naive datetime, no offset (the business_time.datetime value from the time-segments picker). The server converts to UTC using the job's business timezone.",
+            "description": "Chosen start time — business-local wall clock (the business_time.datetime value from the time-segments picker), converted to UTC against the job's business timezone. Seconds may be omitted and a space may replace the T. An offset is accepted only when it agrees with the business timezone; a disagreeing one is refused with JOB_REQUEST_INVALID_INPUT naming what it means locally.",
             "example": "2030-06-14T09:00:00",
+            "format": "date-time",
             "type": "string"
           },
           "status_version": {
@@ -620,8 +639,8 @@
     },
     {
       "name": "createJobType",
-      "title": "Create a job type",
-      "description": "Create a job type\n\nAdds a new job type to the business catalog",
+      "title": "Add a job type to the catalog",
+      "description": "Add a job type to the catalog\n\nCreates a kind of work customers can book, such as \"Annual boiler service\" or \"Drain unblocking\". Job types classify bookings: createJobRequest takes an optional `job_type_id` from this catalog and the job keeps the type's name as it was at booking time.\n\n`name` is the only required field and must be unique in the business (JOB_TYPE_DUPLICATE). `status` defaults to active. An inactive type stays in the catalog but cannot be chosen for new job requests; use that rather than deleting a type you may revive.\n\nSend an Idempotency-Key header (the `idempotency_key` argument over MCP) so a retried call replays the original response instead of creating a duplicate type.\n\nThis defines the catalog, not a booking. To book actual work use createJobRequest and reference the job type there.",
       "method": "POST",
       "path": "/job-types",
       "pathParams": [],
@@ -666,8 +685,8 @@
     },
     {
       "name": "createServiceArea",
-      "title": "Create a new service area",
-      "description": "Create a new service area\n\nCreates a service area with optional polygon boundary for the business",
+      "title": "Define a territory the business serves",
+      "description": "Define a territory the business serves\n\nCreates a service area: a named region used as a HARD filter when deciding who can take a job. A technician assigned to no area covering the job's address is never offered by listNearbyTechnicians, listMatchingSlots or listCrewCandidates, and never auto-assigned at confirm, whatever their skills or availability say.\n\n`name` is the only required field and must be unique (SERVICE_AREA_DUPLICATE_NAME). Coverage is matched two ways: with a `boundary` (GeoJSON polygon), a geocoded address must fall inside the polygon; without one, the area matches addresses by equality on its postal_code, city or district. A polygon is the precise option; the administrative fields are the fallback, and also what matches jobs whose address could not be geocoded. An invalid polygon is refused with SERVICE_AREA_INVALID_BOUNDARY.\n\nCreating the area does not staff it. Assign technicians with replaceTechnicianServiceAreas, or pass `service_area_ids` to createTechnician.\n\nSend an Idempotency-Key header (the `idempotency_key` argument over MCP) so a retry does not create a duplicate area.",
       "method": "POST",
       "path": "/service-areas",
       "pathParams": [],
@@ -1088,8 +1107,8 @@
     },
     {
       "name": "createVehicle",
-      "title": "Create a new vehicle",
-      "description": "Create a new vehicle\n\nCreates a vehicle for the business fleet",
+      "title": "Add a vehicle to the fleet",
+      "description": "Add a vehicle to the fleet\n\nRegisters a van, truck or car in the business's own fleet. Vehicles are what a confirmed job's crew travels in: at confirm, Crisphive auto-selects one vehicle for the whole crew from the lead technician's vehicles, then from unowned fleet vehicles, and blocks a vehicle already booked for an overlapping job.\n\n`name` is the only required field, so a bulk fleet import needs nothing else; brand, model, year, plate_number, current_mileage and vehicle_type (van, truck or car) can be filled in later with updateVehicle. Names and plate numbers must be unique in the business (VEHICLE_DUPLICATE_NAME / VEHICLE_DUPLICATE_PLATE).\n\n`owner_id` records who has CLAIMED the vehicle as their primary one. The owner must be a lead technician or a management role; a buddy- or float-tier profile is refused with VEHICLE_OWNER_TIER_NOT_ALLOWED, an unknown profile with VEHICLE_INVALID_OWNER. Deciding which vehicles a technician may USE is a separate relation: use replaceTechnicianVehicles for that, not this tool.\n\nSend an Idempotency-Key header (the `idempotency_key` argument over MCP) so a retried call replays the original response instead of creating a duplicate vehicle.",
       "method": "POST",
       "path": "/vehicles",
       "pathParams": [],
@@ -1200,8 +1219,8 @@
     },
     {
       "name": "deleteJobType",
-      "title": "Delete a job type",
-      "description": "Delete a job type\n\nSoft-deletes a job type. System rows cannot be deleted.",
+      "title": "Remove a job type from the catalog",
+      "description": "Remove a job type from the catalog\n\nSoft-deletes the entry: it disappears from the catalog and can no longer be selected for new bookings. Jobs already booked against it are unaffected and keep showing the name they were booked with.\n\nPrefer updateJobType with `status=inactive` in almost every case: it has the same effect on the booking form and is trivially reversible. Delete is for a type created in error or one that will never return.\n\nRows the platform ships with (`is_system=true`) cannot be deleted and are refused with JOB_TYPE_SYSTEM_READ_ONLY.",
       "method": "DELETE",
       "path": "/job-types/{id}",
       "pathParams": [
@@ -1225,8 +1244,8 @@
     },
     {
       "name": "deleteServiceArea",
-      "title": "Delete a service area",
-      "description": "Delete a service area\n\nSoft deletes a service area",
+      "title": "Stop serving a territory",
+      "description": "Stop serving a territory\n\nSoft-deletes the service area: it disappears from listServiceAreas and stops counting for coverage immediately. Technician assignments to it are left in place but no longer grant coverage.\n\nThe consequence is easy to underestimate: technicians whose only coverage was this area become unmatchable for addresses inside it. Jobs already assigned keep their technician, but any re-plan (reassign, board move, confirm of a pending job, the slot picker) can find no feasible crew there. Before deleting, re-check listCrewCandidates on upcoming jobs in that territory.\n\nIf you are reshaping coverage rather than withdrawing from it, edit the polygon or postal/city fields with updateServiceArea instead; that keeps the area and its technician assignments working.",
       "method": "DELETE",
       "path": "/service-areas/{id}",
       "pathParams": [
@@ -1300,8 +1319,8 @@
     },
     {
       "name": "deleteTechnician",
-      "title": "Remove a technician",
-      "description": "Remove a technician\n\nSoft-removes a technician from the business by setting status to deactive",
+      "title": "Remove a technician from the business",
+      "description": "Remove a technician from the business\n\nCloses the technician's membership: the profile is set to deactive and soft-deleted, and their access to this business ends on their next request. In the same operation they are removed from every other technician's buddy list, vehicles they own are released, and any personal-calendar connection they made for this business is revoked. Fires the technician.deleted webhook. Their underlying user identity is untouched, and so are memberships at other businesses.\n\nRemoval does NOT move their work: jobs still assigned to them keep the assignment and must be re-staffed. Do that BEFORE removing: use listCrewCandidates on each upcoming job, or re-plan the whole day with previewAbsenceResolve / commitAbsenceResolve (which needs a time-off record covering those days; create one with createTechnicianTimeOff).\n\nThis is a closed membership, not a pause. Re-adding the same email or phone later with createTechnician links the SAME person but opens a FRESH membership with a NEW technician id and none of the old buddy, vehicle or area links. If you expect the person back, suspend them from the dashboard instead; a suspended member is reactivated in place by createTechnician, keeping their id and group.\n\nThe last active Owner cannot be removed (TECHNICIAN_LAST_OWNER). API keys the person created are NOT revoked (an HR action must not take an integration down); if any are still active, the business Owners and Administrators are emailed a list of them.",
       "method": "DELETE",
       "path": "/technicians/{id}",
       "pathParams": [
@@ -1325,8 +1344,8 @@
     },
     {
       "name": "deleteVehicle",
-      "title": "Delete a vehicle",
-      "description": "Delete a vehicle\n\nSoft deletes a vehicle",
+      "title": "Retire a vehicle from the fleet",
+      "description": "Retire a vehicle from the fleet\n\nSoft-deletes the vehicle and, in the same transaction, removes it from every technician's vehicle list. It no longer appears in listVehicles or getVehicle and can no longer be auto-selected for a crew.\n\nJobs that referenced it keep the stored reference but no longer display an assigned vehicle, and upcoming jobs are NOT given a replacement automatically. Reach for this only when a vehicle leaves the fleet for good (sold, written off, off-lease). For a van that is merely in the workshop, set its `status` to maintenance with updateVehicle instead, so the record stays in the fleet and can be brought straight back.",
       "method": "DELETE",
       "path": "/vehicles/{id}",
       "pathParams": [
@@ -1703,8 +1722,9 @@
             "type": "string"
           },
           "start_at": {
-            "description": "Desired start — business-local naive datetime, no offset. Must be in the future.",
+            "description": "Desired start — business-local wall clock. Seconds may be omitted and a space may replace the T; an offset is accepted only when it agrees with the business timezone (a disagreeing one is refused with JOB_REQUEST_INVALID_INPUT rather than guessed). Must be in the future.",
             "example": "2030-06-14T09:00:00",
+            "format": "date-time",
             "type": "string"
           },
           "idempotency_key": {
@@ -2313,7 +2333,7 @@
     {
       "name": "previewAbsenceResolve",
       "title": "Preview re-staffing a technician's whole day (sick call)",
-      "description": "Preview re-staffing a technician's whole day (sick call)\n\nSolves (WITHOUT writing) the re-staffing of every job on a technician's board for a date range: each job is handed to an ALTERNATE lead technician at its UNCHANGED window — the customer's appointment never moves, two overlapping jobs never land on the same alternate, and the absent technician is never a candidate. `date`/`until_date` are business-local calendar days (inclusive, ≤ 14 days). Jobs the planner cannot re-staff come back in `unresolved` with a `reason_code` (no qualified technician free / crew job / multi-day job / already in progress) — a partial plan is a normal 200, not an error. `solver.duration_ms` is server-side planner time; `solver.deterministic` is true (same input ⇒ same plan). Read-only, safe to repeat; copy `resolved[]` into the commit body. No time-off record is required to preview. See ABSENCE_RESOLVE_DESIGN.md.",
+      "description": "Preview re-staffing a technician's whole day (sick call)\n\nSolves (WITHOUT writing) the re-staffing of every job on a technician's board for a date range: each job is handed to an ALTERNATE lead technician at its UNCHANGED window — the customer's appointment never moves, two overlapping jobs never land on the same alternate, and the absent technician is never a candidate. `date`/`until_date` are business-local calendar days (inclusive, ≤ 14 days). Jobs the planner cannot re-staff come back in `unresolved` with a `reason_code` (no qualified technician free / crew job / multi-day job / already in progress) — a partial plan is a normal 200, not an error. `solver.duration_ms` is server-side planner time; `solver.deterministic` is true (same input ⇒ same plan). Read-only, safe to repeat; copy `resolved[]` into the commit body. No time-off record is required to preview. When the strict pass leaves a job unresolved, its row ALSO carries `alternatives[]` — the relaxation ladder's priced options, cheapest constraint first (ABSENCE_RESOLVE_DESIGN.md §9): `reassign_out_of_area` (same window, a lead outside the job's zone — cost.distance_km/travel_minutes), then `reschedule_same_day` / `reschedule_later_day` (the earliest free window on a qualified lead, in-area before out-of-area, up to 3 working days past until_date — cost.customer_renotified, cost.day_offset, cost.sla_breached). Each option is a PROPOSAL: nothing is applied until the coordinator copies it into the commit body with its `alternative_kind` (+ `start_at`/`end_at` for a reschedule). `alternatives` is an empty array when even the ladder found nothing; `solver.alternatives_truncated` is true when the ladder's time budget cut the search short. Displacing another customer's job and overtime are deliberately NOT offered. See ABSENCE_RESOLVE_DESIGN.md.",
       "method": "POST",
       "path": "/job-requests/absence/preview",
       "pathParams": [],
@@ -2411,8 +2431,9 @@
             "type": "string"
           },
           "start_at": {
-            "description": "Desired start — business-local naive datetime, no offset. Must be in the future.",
+            "description": "Desired start — business-local wall clock. Seconds may be omitted and a space may replace the T; an offset is accepted only when it agrees with the business timezone (a disagreeing one is refused with JOB_REQUEST_INVALID_INPUT rather than guessed). Must be in the future.",
             "example": "2030-06-14T09:00:00",
+            "format": "date-time",
             "type": "string"
           },
           "technician_id": {
@@ -2495,7 +2516,7 @@
     {
       "name": "quoteJobRequest",
       "title": "Fire quote (FIXED action — business)",
-      "description": "Fire quote (FIXED action — business)\n\nSends the quote: sets quoted_at + duration cols, advances pending_action to confirm_booking. Status stays `booking`.",
+      "description": "Fire quote (FIXED action — business)\n\nSends the quote: sets quoted_at + duration cols, advances pending_action to confirm_booking. Status stays `booking`.\nBefore writing, checks that the customer will see at least one slot: the same engine as the customer slot picker runs over the windows the customer asked for with THIS quote's duration (working hours, service areas, time-off, existing bookings, crew coverage). If no slot exists the quote is refused with 409 JOB_REQUEST_QUOTE_NOT_SCHEDULABLE; data.reason says why (outside_working_hours, requested_windows_passed, outside_service_area, off_shift, on_time_off, missing_required_skills, no_technician_available, ...) and data.blocked_by counts the roster per blocker. Send force=true to schedule it anyway after agreeing a time with the customer.",
       "method": "POST",
       "path": "/job-requests/{id}/quote",
       "pathParams": [
@@ -2506,6 +2527,7 @@
       "bodyParams": [
         "crew",
         "demobilization_minutes",
+        "force",
         "job_duration_minutes",
         "mobilization_minutes",
         "status_version"
@@ -2552,6 +2574,11 @@
             "example": 15,
             "minimum": 0,
             "type": "integer"
+          },
+          "force": {
+            "description": "Schedule the job even when no technician can take it in ANY window the customer asked for (outside working hours, outside every service area, nobody free). Without it that case answers 409 JOB_REQUEST_QUOTE_NOT_SCHEDULABLE with the reason, so the coordinator can agree a different time with the customer first. Send true only after that conversation; the override is recorded in the activity feed.",
+            "example": false,
+            "type": "boolean"
           },
           "job_duration_minutes": {
             "description": "Hands-on work duration in minutes (man-minutes for a crew job). Required, min 1.",
@@ -2966,8 +2993,8 @@
     },
     {
       "name": "updateJobType",
-      "title": "Update a job type",
-      "description": "Update a job type\n\nUpdates a job type. System rows (is_system=true) cannot be modified.",
+      "title": "Rename a job type or change its availability",
+      "description": "Rename a job type or change its availability\n\nEdits a catalog entry in place. A rename applies to NEW bookings only: every job stores the job-type name it was booked with, so existing and completed jobs keep their original label.\n\nPartial update: omit a field to keep it. `name` rejects \"\" because a type must stay identifiable, and must stay unique (JOB_TYPE_DUPLICATE). Setting `status` to inactive is the reversible way to take a type off the booking form; inactive types are refused for new job requests.\n\nRows the platform ships with (`is_system=true`, e.g. the default \"General\" type) cannot be modified and are refused with JOB_TYPE_SYSTEM_READ_ONLY. Create your own type instead if you need different wording.",
       "method": "PUT",
       "path": "/job-types/{id}",
       "pathParams": [
@@ -3009,8 +3036,8 @@
     },
     {
       "name": "updateServiceArea",
-      "title": "Update a service area",
-      "description": "Update a service area\n\nUpdates the service area details including boundary",
+      "title": "Adjust a territory's details or its boundary",
+      "description": "Adjust a territory's details or its boundary\n\nEdits a service area in place, keeping its id and every technician already assigned to it.\n\nPartial update: omit a field to keep it, send \"\" to clear an optional text field; `name` rejects \"\". `boundary` is the one to watch: omitting it KEEPS the stored polygon, while sending one REPLACES it outright (no partial merge of geometry). This tool cannot remove a polygon once set.\n\nA boundary or postal/city change takes effect for every NEW matching decision (quote checks, confirm, reassign, board moves, slot pickers), including for jobs already on the calendar when they are next re-planned. Jobs already assigned are not re-evaluated automatically, so after moving an edge, re-check listCrewCandidates on upcoming jobs near it.",
       "method": "PUT",
       "path": "/service-areas/{id}",
       "pathParams": [
@@ -3280,8 +3307,8 @@
     },
     {
       "name": "updateVehicle",
-      "title": "Update a vehicle",
-      "description": "Update a vehicle\n\nUpdates the vehicle details",
+      "title": "Change a vehicle's details",
+      "description": "Change a vehicle's details\n\nEdits an existing fleet record in place; the vehicle id and the technicians who use it are untouched.\n\nPartial update: omit a field to KEEP its current value, send \"\" to CLEAR an optional text field (brand, model, plate_number). Exceptions: `name` rejects \"\" because a vehicle must stay identifiable, and `vehicle_type` (van, truck, car) and `status` (inactive, idle, on_job, maintenance) must be valid enum values when present; an empty string there is a 400. `owner_id`: omit to keep the current owner, \"\" to unclaim, or a UUID to reassign; the new owner must be a lead or management profile (VEHICLE_OWNER_TIER_NOT_ALLOWED otherwise).\n\nUse this for corrections and odometer updates, and set `status` to maintenance or inactive when a vehicle is temporarily out of service so it stays in the fleet. To change which technicians may use it, call replaceTechnicianVehicles; to take it out of the fleet for good, call deleteVehicle.",
       "method": "PUT",
       "path": "/vehicles/{id}",
       "pathParams": [

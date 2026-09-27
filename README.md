@@ -250,6 +250,8 @@ createCustomer                           → { customer_id }
 listJobRequestBookingWindows             → offer only the returned windows
 createJobRequest                         → booking created
 quoteJobRequest → confirmJobRequest      → scheduled (auto or forced technician)
+   (quote answers 409 JOB_REQUEST_QUOTE_NOT_SCHEDULABLE when the customer
+    would see no slot — agree a new time, or resend with force: true)
 getJobRequest / listJobRequestChanges    → track status
 ```
 

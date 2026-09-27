@@ -255,6 +255,18 @@ outside its scope — enforced by the same permission layer as the REST API.
     `Idempotency-Key` header. Pass the same value when retrying a create.
   - `x_timezone` where a customer timezone is needed (e.g. required on
     `listJobRequestBookingWindows`) → `X-Timezone` header (an IANA timezone).
+- **Scheduling datetimes are business-local wall clocks** (`scheduled_at`,
+  `start_at`, `sla_deadline`): send `2026-09-23T09:00:00` (seconds optional,
+  space allowed instead of `T`). An offset is accepted only when it agrees with
+  the business timezone — a `Z` on a Toronto business is refused with
+  `400 JOB_REQUEST_INVALID_INPUT` whose `data.means_locally` says what your
+  value would have meant there, so one retry fixes it. Time-off
+  `start_datetime`/`end_datetime` are the exception: RFC3339 instants.
+- **A quote can be refused** — `quoteJobRequest` answers
+  `409 JOB_REQUEST_QUOTE_NOT_SCHEDULABLE` (with `data.reason` and
+  `data.blocked_by`) when the customer would get no slot in any window they
+  asked for. Agree another time with the customer, or resend with
+  `force: true`; never force silently.
 - **Result shape** — every tool returns the standard REST envelope as a text
   block *and* as `structuredContent`:
   ```json
@@ -278,6 +290,7 @@ listSkills / listJobTypes                → discover reference IDs
 createCustomer                           → { customer_id }
 listJobRequestBookingWindows             → offer only returned windows
 createJobRequest                         → booking created
+quoteJobRequest → confirmJobRequest      → scheduled (409 NOT_SCHEDULABLE ⇒ new time or force)
 getJobRequest / listJobRequestChanges    → track status
 ```
 

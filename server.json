@@ -19,7 +19,7 @@
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "@crisphive/mcp",
-      "version": "2.1.0",
+      "version": "2.2.0",
       "runtimeHint": "npx",
       "transport": {
         "type": "stdio"

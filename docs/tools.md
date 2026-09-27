@@ -49,8 +49,8 @@ webhooks).
 
 | Tool | REST operation | Description |
 |---|---|---|
-| `quoteJobRequest` | `POST /v1/job-requests/{id}/quote` | Set the job's time bundle: `job_duration_minutes` (+ optional mobilization/demobilization and a multi-person `crew` plan — exactly one lead, wrench_percent summing to 100). Required before confirming. |
-| `confirmJobRequest` | `POST /v1/job-requests/{id}/confirm` | Confirm the schedule: `scheduled_at` (business-local naive datetime). Crisphive auto-selects the optimal technician/crew (location, skills, availability, priority) — or pass `technician_id` to force a specific lead (feasibility still enforced). No capacity → `JOB_REQUEST_NO_TECHNICIAN_AVAILABLE`; a P0 gets `JOB_REQUEST_P0_REQUIRES_DISPLACEMENT` (use the emergency flow). Supports `idempotency_key`. |
+| `quoteJobRequest` | `POST /v1/job-requests/{id}/quote` | Set the job's time bundle: `job_duration_minutes` (+ optional mobilization/demobilization and a multi-person `crew` plan — exactly one lead, wrench_percent summing to 100). Required before confirming. Before writing it checks the customer will see at least one slot (same engine as the slot picker, over the windows the customer asked for, with THIS duration): no slot → `409 JOB_REQUEST_QUOTE_NOT_SCHEDULABLE` with `data.reason` (`outside_working_hours`, `requested_windows_passed`, `outside_service_area`, `off_shift`, `no_technician_available`, …) and `data.blocked_by`. Agree a different time with the customer, or resend with `force: true` to schedule anyway (the override is recorded in the activity feed). Added 2026-09-24. |
+| `confirmJobRequest` | `POST /v1/job-requests/{id}/confirm` | Confirm the schedule: `scheduled_at` is a BUSINESS-LOCAL wall clock — canonical `2026-09-23T09:00:00`; seconds may be omitted and a space may replace the `T`. An offset is accepted ONLY when it agrees with the business timezone (`…T09:00:00-04:00` for a Toronto business in EDT is fine, `…T09:00:00Z` is not — it names 05:00 there); a disagreeing offset → `400 JOB_REQUEST_INVALID_INPUT` whose `data` carries `business_timezone`, `expected_format` and `means_locally`, enough to fix in one retry. Crisphive auto-selects the optimal technician/crew (location, skills, availability, priority) — or pass `technician_id` to force a specific lead (feasibility still enforced). No capacity → `JOB_REQUEST_NO_TECHNICIAN_AVAILABLE` with `data.blockers[]` naming every hard filter that refused; a P0 gets `JOB_REQUEST_P0_REQUIRES_DISPLACEMENT` (use the emergency flow). Supports `idempotency_key`. |
 | `previewJobRequestMove` | `POST /v1/job-requests/{id}/move/preview` | Preview moving a confirmed job to a new time and/or technician: validates the landing slot (customer-window hard block, occupied-slot check) and returns displaced jobs, warnings and crew swaps — WITHOUT writing. |
 | `commitJobRequestMove` | `POST /v1/job-requests/{id}/move/commit` | Apply the previewed move (echo `expected_version` / `expected_move_ids` to fence drift → `SCHEDULE_MOVE_PLAN_DRIFTED`). Non-P0 moves must land in free capacity unless the business enabled `allow_non_p0_displacement`. Supports `idempotency_key`. |
 
@@ -93,17 +93,17 @@ job requests. None of these writes fires a webhook event.
 
 | Tool | REST operation | Description |
 |---|---|---|
-| `createJobType` | `POST /v1/job-types` | Add a service-catalog entry (name + optional active/inactive status). Supports `idempotency_key`. |
-| `updateJobType` | `PUT /v1/job-types/{id}` | Rename a service-catalog entry or flip active/inactive. PARTIAL — omit a field to keep it. Added 2026-09-04. |
-| `deleteJobType` | `DELETE /v1/job-types/{id}` | Remove a catalog entry (destructive — clients confirm). |
+| `createJobType` | `POST /v1/job-types` | Add a kind of work customers can book ("Annual boiler service"). `name` is the only required field and must be unique (`JOB_TYPE_DUPLICATE`); `status` defaults to active — an inactive type stays in the catalog but cannot be chosen for new bookings, so prefer that over deleting a type you may revive. Job types classify bookings and are NOT linked to skill matching; a job keeps the type's name as it was at booking time. Supports `idempotency_key`. |
+| `updateJobType` | `PUT /v1/job-types/{id}` | Rename a job type or flip active/inactive. PARTIAL — omit a field to keep it; `name` rejects `""`. A rename applies to NEW bookings only (existing jobs keep the name they were booked with). Platform-shipped rows (`is_system=true`, e.g. "General") are refused with `JOB_TYPE_SYSTEM_READ_ONLY`. Added 2026-09-04. |
+| `deleteJobType` | `DELETE /v1/job-types/{id}` | Soft-delete a catalog entry: gone from the catalog, unselectable for new bookings; jobs already booked against it are unaffected. Prefer `updateJobType` with `status=inactive` (same effect on the booking form, reversible). System rows refused with `JOB_TYPE_SYSTEM_READ_ONLY`. Destructive — clients confirm. |
 | `createSkillCategory` | `POST /v1/skill-categories` | Add a trade/specialty category (name + optional icon). Supports `idempotency_key`. |
 | `deleteSkillCategory` | `DELETE /v1/skill-categories/{id}` | Remove a category (destructive). |
 | `createSkill` | `POST /v1/skill-categories/{id}/skills` | Add a skill under its category — a skill always lives under a category. Supports `idempotency_key`. |
 | `updateSkill` | `PUT /v1/skills/{id}` | Rename / re-describe a skill or toggle `is_active`. PARTIAL — omit a field to keep it. Added 2026-09-04. |
 | `deleteSkill` | `DELETE /v1/skills/{id}` | Remove a skill (destructive). |
-| `createServiceArea` | `POST /v1/service-areas` | Add a service territory. Optional GeoJSON `boundary` polygon (`[lng, lat]` rings); without one the area works as a label but does not geo-filter auto-assignment. Supports `idempotency_key`. |
-| `updateServiceArea` | `PUT /v1/service-areas/{id}` | Edit a territory. PARTIAL — omit `boundary` to KEEP the stored polygon (a rename never wipes the geometry). Added 2026-09-04. |
-| `deleteServiceArea` | `DELETE /v1/service-areas/{id}` | Remove a territory (destructive). |
+| `createServiceArea` | `POST /v1/service-areas` | Define a territory the business serves — a HARD filter on who can take a job: a technician assigned to no area covering the job's address is never offered by `listNearbyTechnicians` / `listMatchingSlots` / `listCrewCandidates` and never auto-assigned, whatever their skills say. Optional GeoJSON `boundary` polygon (`[lng, lat]` rings); without one the area still matches by postal code / city / district. Assign technicians with `replaceTechnicianServiceAreas`. Supports `idempotency_key`. |
+| `updateServiceArea` | `PUT /v1/service-areas/{id}` | Edit a territory in place, keeping its id and every assigned technician. PARTIAL — omit a field to keep it, `""` clears optional text, `name` rejects `""`; omit `boundary` to KEEP the polygon, send one to REPLACE it outright (a polygon cannot be removed once set). Changes apply to every NEW matching decision; jobs already assigned are not re-evaluated — re-check `listCrewCandidates` on upcoming jobs near a moved edge. Added 2026-09-04. |
+| `deleteServiceArea` | `DELETE /v1/service-areas/{id}` | Soft-delete a territory: it stops counting for coverage immediately, so technicians whose only coverage was this area become unmatchable for addresses inside it (assigned jobs keep their technician; any re-plan can find no crew). To reshape coverage use `updateServiceArea` instead. Destructive — clients confirm. |
 
 ## Team & fleet — reads
 
@@ -113,9 +113,9 @@ job requests. None of these writes fires a webhook event.
 | `getTechnician` | `GET /v1/technicians/{id}` | One technician's dispatch-ready profile: status, tier, qualifications, crew relations, vehicles. |
 | `listVehicles` | `GET /v1/vehicles` | The service fleet: vans/trucks with operational status (idle, on job, maintenance). |
 | `getVehicle` | `GET /v1/vehicles/{id}` | Get one fleet vehicle and which technicians use it. |
-| `createVehicle` | `POST /v1/vehicles` | Add a fleet vehicle (only `name` required; optional `owner_id` must be a lead technician or management profile). Which vehicles a technician USES is `replaceTechnicianVehicles`. Supports `idempotency_key`. Added 2026-09-03. |
-| `updateVehicle` | `PUT /v1/vehicles/{id}` | Edit a fleet vehicle. PARTIAL — omit a field to keep it; omit `owner_id` to keep the owner, send `""` to clear. Added 2026-09-04. |
-| `deleteVehicle` | `DELETE /v1/vehicles/{id}` | Remove a vehicle from the fleet (soft; technician references are scrubbed automatically; destructive — clients confirm). |
+| `createVehicle` | `POST /v1/vehicles` | Add a fleet vehicle (only `name` required; names and plate numbers unique — `VEHICLE_DUPLICATE_NAME` / `VEHICLE_DUPLICATE_PLATE`). Vehicles are what a confirmed job's crew travels in: at confirm Crisphive auto-selects ONE vehicle for the whole crew from the lead's vehicles, then unowned fleet vehicles, and blocks one already booked for an overlapping job; the matching engine itself never reads vehicles. `owner_id` (who CLAIMED it) must be a lead technician or management profile (`VEHICLE_OWNER_TIER_NOT_ALLOWED`). Which vehicles a technician may USE is `replaceTechnicianVehicles`. Supports `idempotency_key`. Added 2026-09-03. |
+| `updateVehicle` | `PUT /v1/vehicles/{id}` | Edit a fleet record in place. PARTIAL — omit a field to keep it, `""` clears optional text (brand, model, plate_number); `name` rejects `""`, `vehicle_type` (van/truck/car) and `status` (inactive/idle/on_job/maintenance) must be valid when present. `owner_id`: omit to keep, `""` to unclaim, UUID to reassign (lead/management only). Set `status=maintenance` for a van in the workshop rather than deleting it. Added 2026-09-04. |
+| `deleteVehicle` | `DELETE /v1/vehicles/{id}` | Retire a vehicle for good: soft-deleted and removed from every technician's vehicle list in the same transaction; jobs that referenced it no longer display a vehicle and upcoming jobs get NO automatic replacement. For a temporary outage use `updateVehicle` with `status=maintenance`. Destructive — clients confirm. |
 
 ---
 
@@ -132,7 +132,7 @@ areas, so keep them in sync.
 |---|---|---|
 | `createTechnician` | `POST /v1/technicians` | Add a team member. Requires `business_group_id` (the role group's ID, from the business dashboard — Settings → Permissions) and at least one of `phone`/`email`. Optional `assignment_tier` (lead/buddy/float), day-start location, inline `buddy_ids`/`lead_ids`/`service_area_ids`. Supports `idempotency_key`. |
 | `updateTechnician` | `PUT /v1/technicians/{id}` | Full-replace profile update (send every field; relations have their own tools). |
-| `deleteTechnician` | `DELETE /v1/technicians/{id}` | Remove from the roster (soft; buddy/vehicle references are scrubbed automatically). |
+| `deleteTechnician` | `DELETE /v1/technicians/{id}` | Close the membership: profile set deactive + soft-deleted, access ends on their next request; removed from every buddy list, owned vehicles released, their calendar connection for this business revoked; fires `technician.deleted`. Their user identity and memberships at OTHER businesses are untouched. Removal does NOT move their work — re-staff upcoming jobs FIRST (`listCrewCandidates` per job, or `previewAbsenceResolve` / `commitAbsenceResolve` with a covering `createTechnicianTimeOff` record). Re-adding the same person later opens a FRESH membership with a new id and no links — suspend from the dashboard instead if you expect them back. Last active Owner refused (`TECHNICIAN_LAST_OWNER`); their API keys are NOT revoked (Owners/Admins are emailed the list). |
 | `replaceTechnicianBuddies` | `PUT /v1/technicians/{id}/buddies` | Set a lead's buddy list (self-buddy rejected). |
 | `replaceTechnicianLeads` | `PUT /v1/technicians/{id}/leads` | Same relation from the buddy's side: which leads this technician assists. |
 | `replaceTechnicianVehicles` | `PUT /v1/technicians/{id}/vehicles` | Set the vehicles the technician uses (discover via `listVehicles`). |
@@ -159,6 +159,15 @@ use throwaway addresses when experimenting.
   (create tools → `Idempotency-Key`), `x_timezone` (→ `X-Timezone`).
 - All IDs are UUIDs; timestamps are RFC3339 UTC; times-of-day are integer
   minutes since midnight (0–1440), never `"HH:MM"`.
+- **Scheduling datetimes are BUSINESS-LOCAL wall clocks** (`scheduled_at` on
+  `confirmJobRequest`, `start_at` on the move and emergency tools,
+  `sla_deadline` on create/priority): canonical `2026-09-23T09:00:00`;
+  seconds may be omitted and a space may replace the `T`. An offset is
+  accepted only when it AGREES with the business timezone; a disagreeing one
+  (typically a `Z`) is refused with `400 JOB_REQUEST_INVALID_INPUT` whose `data`
+  carries `business_timezone`, `expected_format` and `means_locally` — fix and
+  resend once. Time-off tools are the exception: `start_datetime`/`end_datetime`
+  are RFC3339 INSTANTS with offset.
 - List tools paginate with `page`/`limit` (default 15, max 1000) and return a
   `meta` object (`total`, `count`, `per_page`, `current_page`, `total_pages`).
 
