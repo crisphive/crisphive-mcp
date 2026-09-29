@@ -8,9 +8,9 @@ import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 const registry = require("../src/tools.generated.json");
 
-test("registry has 43 unique tools with object schemas", () => {
+test("registry has 65 unique tools with object schemas", () => {
   assert.equal(registry.basePath, "/v1");
-  assert.equal(registry.tools.length, 61);
+  assert.equal(registry.tools.length, 65);
   const names = new Set(registry.tools.map((t) => t.name));
   assert.equal(names.size, registry.tools.length);
   for (const t of registry.tools) {
@@ -70,7 +70,7 @@ test("stdio server answers initialize and tools/list", async () => {
   send({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} });
   await waitFor(() => responses.some((r) => r.id === 2), 5000);
   const list = responses.find((r) => r.id === 2);
-  assert.equal(list.result.tools.length, 61);
+  assert.equal(list.result.tools.length, 65);
   const listCustomers = list.result.tools.find((t) => t.name === "listCustomers");
   assert.ok(listCustomers, "listCustomers tool present");
   assert.equal(listCustomers.annotations.readOnlyHint, true);

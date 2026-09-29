@@ -28,7 +28,7 @@ drift.
 
 > **Stdio-only client?** This guide covers the hosted remote endpoint. For
 > clients that only speak stdio (or self-hosted setups) there is also a local
-> package, **`@crisphive/mcp`** on npm — the same 61 tools, each call an HTTPS
+> package, **`@crisphive/mcp`** on npm — the same 65 tools, each call an HTTPS
 > request to `/v1` with your `CRISPHIVE_API_KEY`. See the README's
 > "Local server" section.
 
@@ -240,9 +240,20 @@ retryable error — both a lapsed idle window and a reached cap surface there.
 
 `scope` is a space-separated list of Crisphive **permission codes** (the same
 catalog as restricted API keys / dashboard permission groups, e.g.
-`customers_view`, `customers_manage`, `job_requests_view`). Omitting `scope`
-grants **full business access**. A scoped token gets `403` from any tool
-outside its scope — enforced by the same permission layer as the REST API.
+`customers_view`, `customers_manage`, `job_view`).
+
+An OAuth token acts **as the member who consented**, never as a business-wide
+key: every call is authorized against that person's CURRENT role in the
+business, re-read on each request. Scopes can only NARROW that — omitting
+`scope` means "everything this member may do", not the whole business, and a
+scope the member's role does not hold is refused at consent
+(`OAUTH_SCOPE_NOT_GRANTED`). If the member is removed or suspended, their
+tokens stop working on the next request. A tool outside the effective
+permissions answers `403`. Because the agent is a person, the business-wide job
+reads (job list/changes/detail/timeline, booking windows, time segments, crew
+candidates, nearby technicians, a technician's schedule) also require
+`job_manage`, as they do on the dashboard: a technician's agent cannot read the
+whole dispatch board.
 
 ---
 
@@ -280,6 +291,21 @@ outside its scope — enforced by the same permission layer as the REST API.
   `destructiveHint` (clients like Claude confirm before running them).
 - **UUID validation** — a non-UUID `id` argument returns an in-band tool error,
   never a misrouted operation.
+- **One-call booking** — `bookAndConfirmJobRequest` books, quotes and
+  confirms. A scheduling refusal after the job exists is a `200` with
+  `confirmed: false` + `refusal` (the job waits in the coordinator's queue);
+  retry only with the SAME `idempotency_key`.
+- **Tool profiles** — `https://api.crisphive.com/mcp?profile=voice` (also
+  `dispatch`, `crm`) lists a small subset of tools, for clients such as voice
+  platforms that load every tool a server offers. Tools outside the profile are
+  refused; an unknown profile is a `400` naming the valid ones. No parameter =
+  every tool.
+- **Webhook subscriptions** — `createWebhookEndpoint` may only subscribe to
+  events the credential can read (`403 WEBHOOK_EVENT_NOT_PERMITTED` otherwise);
+  store the one-time `secret` and verify `Crisphive-Signature` on every
+  delivery. Filter out the `ping` event.
+- **Idempotency keys** are scoped per credential: the same key sent by two
+  different API keys or apps never replays the other's response.
 - **Rate limit** — per credential, shared with REST: **240/min**. A `429`
   envelope means back off and retry.
 
@@ -291,6 +317,8 @@ createCustomer                           → { customer_id }
 listJobRequestBookingWindows             → offer only returned windows
 createJobRequest                         → booking created
 quoteJobRequest → confirmJobRequest      → scheduled (409 NOT_SCHEDULABLE ⇒ new time or force)
+  — or, from a phone call / automation:
+listCustomers?phone= → bookAndConfirmJobRequest → confirmed, or confirmed:false + refusal
 getJobRequest / listJobRequestChanges    → track status
 ```
 
@@ -313,6 +341,13 @@ getJobRequest / listJobRequestChanges    → track status
   accepted on the Crisphive dashboard/admin/customer surfaces (and vice-versa).
 - A token is scoped to **one** business + region + environment, fixed at
   consent time; no request parameter can widen it.
+- A token acts as the consenting member with their live role; it can never do
+  more than that person could do in the dashboard.
+- Replaying an authorization code revokes every token issued from it.
+- Only clients Crisphive issued itself are marked `verified` on the consent
+  screen, which also shows where the authorization is sent
+  (`redirect_hosts`). Self-registered clients cannot use Crisphive's or a
+  partner platform's name.
 - PKCE `S256` is mandatory; authorization codes are single-use, 60s TTL, and
   bound to client + redirect + challenge.
 - Refresh tokens rotate single-use with family-burn-on-reuse.

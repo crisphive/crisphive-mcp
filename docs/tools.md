@@ -1,6 +1,6 @@
 # Crisphive MCP — Tool Reference
 
-61 field-operations tools — job booking, quoting & schedule
+65 field-operations tools — job booking, quoting & schedule
 confirmation, appointment scheduling, crew/skill/availability matching,
 priority (P0–P3) & SLA management, emergency dispatch with cascade
 rescheduling, job moves, work-order tracking, dispatch data, CRM sync,
@@ -14,7 +14,7 @@ OpenAPI 3.0.3 spec: `https://api.crisphive.com/developers/openapi.json`.
 
 | Tool | REST operation | Description |
 |---|---|---|
-| `listCustomers` | `GET /v1/customers` | List customers (paginated; also supports the `since` incremental-sync cursor). |
+| `listCustomers` | `GET /v1/customers` | List customers (paginated; also supports the `since` incremental-sync cursor). `phone=` is an EXACT caller lookup in E.164 (`+16135550188`) — match a caller before creating them; an unparseable number is refused with `PHONE_INVALID`, never answered with an empty page. `q` stays the fuzzy search. |
 | `createCustomer` | `POST /v1/customers` | Create a customer. Requires `full_name` + at least one of `phone`/`email`. Supports `idempotency_key`. |
 | `getCustomer` | `GET /v1/customers/{id}` | Get one customer. |
 | `updateCustomer` | `PUT /v1/customers/{id}` | Update a customer. |
@@ -51,6 +51,7 @@ webhooks).
 |---|---|---|
 | `quoteJobRequest` | `POST /v1/job-requests/{id}/quote` | Set the job's time bundle: `job_duration_minutes` (+ optional mobilization/demobilization and a multi-person `crew` plan — exactly one lead, wrench_percent summing to 100). Required before confirming. Before writing it checks the customer will see at least one slot (same engine as the slot picker, over the windows the customer asked for, with THIS duration): no slot → `409 JOB_REQUEST_QUOTE_NOT_SCHEDULABLE` with `data.reason` (`outside_working_hours`, `requested_windows_passed`, `outside_service_area`, `off_shift`, `no_technician_available`, …) and `data.blocked_by`. Agree a different time with the customer, or resend with `force: true` to schedule anyway (the override is recorded in the activity feed). Added 2026-09-24. |
 | `confirmJobRequest` | `POST /v1/job-requests/{id}/confirm` | Confirm the schedule: `scheduled_at` is a BUSINESS-LOCAL wall clock — canonical `2026-09-23T09:00:00`; seconds may be omitted and a space may replace the `T`. An offset is accepted ONLY when it agrees with the business timezone (`…T09:00:00-04:00` for a Toronto business in EDT is fine, `…T09:00:00Z` is not — it names 05:00 there); a disagreeing offset → `400 JOB_REQUEST_INVALID_INPUT` whose `data` carries `business_timezone`, `expected_format` and `means_locally`, enough to fix in one retry. Crisphive auto-selects the optimal technician/crew (location, skills, availability, priority) — or pass `technician_id` to force a specific lead (feasibility still enforced). No capacity → `JOB_REQUEST_NO_TECHNICIAN_AVAILABLE` with `data.blockers[]` naming every hard filter that refused; a P0 gets `JOB_REQUEST_P0_REQUIRES_DISPLACEMENT` (use the emergency flow). Supports `idempotency_key`. |
+| `bookAndConfirmJobRequest` | `POST /v1/job-requests/book-and-confirm` | Book + quote + confirm in ONE call — built for voice agents and automation platforms. Send `customer_id`, or an inline `customer` (+ `address`) that is matched by phone/email or created. `job_duration_minutes` is optional when the job type has a default duration (every business's default type, "General", ships with 60 min + 15 + 15). Every input is validated before anything is written (4xx, nothing created). Once the job exists it is never discarded: a scheduling refusal answers **200** with `confirmed: false` and `refusal` (`stage` + the exact `error_code`/`data` quote or confirm would have returned) — the job then waits, quoted, in the coordinator's queue. Retry with the SAME `idempotency_key`; a new key books a second job. Needs `job_create` and `job_manage`. Added 2026-09-28. |
 | `previewJobRequestMove` | `POST /v1/job-requests/{id}/move/preview` | Preview moving a confirmed job to a new time and/or technician: validates the landing slot (customer-window hard block, occupied-slot check) and returns displaced jobs, warnings and crew swaps — WITHOUT writing. |
 | `commitJobRequestMove` | `POST /v1/job-requests/{id}/move/commit` | Apply the previewed move (echo `expected_version` / `expected_move_ids` to fence drift → `SCHEDULE_MOVE_PLAN_DRIFTED`). Non-P0 moves must land in free capacity unless the business enabled `allow_non_p0_displacement`. Supports `idempotency_key`. |
 
@@ -70,11 +71,21 @@ webhooks).
 | `previewAbsenceResolve` | `POST /v1/job-requests/absence/preview` | Solve, WITHOUT writing, the re-staffing of every single-person job on `technician_id`'s board for `date`…`until_date` (business-local `YYYY-MM-DD`, inclusive, ≤ 14 days; optional `job_ids` subset). Each job in `resolved[]` is handed to an alternate lead at its UNCHANGED window — the customer's appointment never moves, two overlapping jobs never land on the same alternate, the absent technician is never a candidate. `unresolved[]` carries a `reason_code` (`NO_QUALIFIED_TECH_FREE`, `CREW_JOB_UNSUPPORTED`, `MULTIDAY_UNSUPPORTED`, `IN_PROGRESS`); a partial plan is a normal result. `distance_km`/`travel_minutes` are ABSENT when unknown — never render `0 km`. `solver.duration_ms` is server planner time; `solver.deterministic` is true (same board ⇒ same plan). 409 `ABSENCE_RESOLVE_NO_ORPHANED_JOBS` = nothing on the board in that range. |
 | `commitAbsenceResolve` | `POST /v1/job-requests/absence/commit` | Apply the previewed plan atomically: pass `assignments[]` copied from `preview.resolved[]` (`job_id`, `to_technician_id`, `status_version`) — rows may be DROPPED, never added or re-pointed (commit VERIFIES, it does not solve). All assignments land in one transaction or none; each job's attention flag is cleared and its `status_version` bumped (the response echoes the post-commit value). Requires a time-off record covering the absence — approved, or pending and CONTAINED in the range (the commit approves those; a pending record WIDER than the range is never approved and is listed in `data.pending_wider_time_off_ids[]`); otherwise 409 `ABSENCE_RESOLVE_TIME_OFF_REQUIRED` with `data.uncovered_dates[]`/`data.uncovered_jobs[]` — record the sick day with `createTechnicianTimeOff` (pending is enough), then commit again. 409 `ABSENCE_RESOLVE_PLAN_DRIFTED` (`data.drifted[].reason` ∈ `version` \| `infeasible` \| `occupied`) means the board moved and no job was written — re-preview, then commit. Per-job `notification` evidence says what the customer routing WILL do (`dispatched` + channels, or `skipped` + reason), never proof of delivery. A restricted key needs `job_manage` for both tools and `schedule_manage` for commit. Supports `idempotency_key`. |
 
+## Webhooks — subscribe / unsubscribe (REST-hook triggers)
+
+| Tool | REST operation | Description |
+|---|---|---|
+| `listWebhookEventTypes` | `GET /v1/webhooks/event-types` | The catalog of subscribable event types (`resource.action`, e.g. `job_request.completed`, `customer.created`). Extend-only: a published type is never renamed or removed. |
+| `createWebhookEndpoint` | `POST /v1/webhooks` | Subscribe an HTTPS URL. Crisphive sends a signed `ping` at once: a 2xx creates it `active`, anything else `pending_verification` (receives nothing — delete and create again). The signing `secret` (`whsec_…`) is returned ONCE; verify `Crisphive-Signature` (HMAC-SHA256, `t=…,v1=…`, accept if ANY `v1` matches). `expires_in_days` 1–365 (default 30). `event_types` may only name events the calling credential can READ (`customer.*` needs `customers_view`, `technician.*` `team_view`, `job_request.*` `job_view`) — otherwise `403 WEBHOOK_EVENT_NOT_PERMITTED` with `data.event_types` + `data.required_permissions`; empty = every event it may read. Supports `idempotency_key`. Added 2026-09-28. |
+| `deleteWebhookEndpoint` | `DELETE /v1/webhooks/{id}` | Unsubscribe: no further events or pending retries are delivered. Scoped to the credential's environment — a sandbox key cannot delete a live endpoint. Added 2026-09-28. |
+
+List, update, verify, test, secret rotation and delivery history stay on the dashboard. An endpoint created through the API is **disabled** automatically when the API key that created it is revoked, when the connected app is disconnected, or when the member whose app created it leaves or is suspended (`disabled_reason` says which); re-enabling is the dashboard's Verify button. The business Owner and Administrators are emailed the first time an app or key subscribes a webhook.
+
 ## Catalog — reference reads (discover the IDs used by the writes above)
 
 | Tool | REST operation | Description |
 |---|---|---|
-| `listJobTypes` | `GET /v1/job-types` | The business's service catalog — offerings like installation, repair, maintenance, inspection (for `job_type_id`). |
+| `listJobTypes` | `GET /v1/job-types` | The business's service catalog — offerings like installation, repair, maintenance, inspection (for `job_type_id`). Each type may carry a default quote bundle (`default_duration_minutes` + optional mobilization/demobilization); `is_default` marks the business's default type ("General"), used when a booking names no type. |
 | `getJobType` | `GET /v1/job-types/{id}` | Get one service-catalog entry (job/work-order type) with localized display name. |
 | `listSkills` | `GET /v1/skills` | Flat list of technician skills / qualifications — the vocabulary of skill-based dispatch (primary discovery call for `skill_ids`). |
 | `listSkillCategories` | `GET /v1/skill-categories` | Skill categories — qualifications grouped by trade/specialty (HVAC, plumbing, electrical, …). |
@@ -144,7 +155,11 @@ areas, so keep them in sync.
 
 Suspension/status changes and role-group AUTHORING stay dashboard-only.
 Owner/Administrator group assignment is rejected for API keys
-(`TECHNICIAN_ROLE_API_KEY_FORBIDDEN`), and the last active Owner cannot be
+(`TECHNICIAN_ROLE_API_KEY_FORBIDDEN`). An API key is also held to its
+CREATOR's current role, exactly like their own dashboard session: assigning a
+group above it answers `TECHNICIAN_GROUP_NOT_ASSIGNABLE`, editing someone
+above it `TECHNICIAN_TARGET_NOT_MANAGEABLE`, and a key whose creator has left
+or been suspended `API_KEY_CREATOR_INACTIVE`. The last active Owner cannot be
 removed or demoted (`TECHNICIAN_LAST_OWNER`). Sandbox caveat: a chsk_test_
 create still resolves the REAL person identity for the given phone/email —
 use throwaway addresses when experimenting.

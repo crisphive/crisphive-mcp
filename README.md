@@ -156,7 +156,7 @@ Clients that only speak stdio can bridge with
 
 ### Local server (npm — `@crisphive/mcp`)
 
-This repository also ships a thin **local stdio server**: the same 61 tools
+This repository also ships a thin **local stdio server**: the same 65 tools
 (same names, same schemas — generated from the same `/v1` OpenAPI spec as the
 hosted endpoint), where each call is an HTTPS request to the Crisphive API
 with your key. No business logic runs locally.
@@ -224,7 +224,7 @@ PKCE. Full flow, scopes and token lifetimes:
 
 ## Tools
 
-61 tools, one per operation of the public `/v1` API — same names as the SDK
+65 tools, one per operation of the public `/v1` API — same names as the SDK
 methods (`listCustomers`, `createJobRequest`, …), derived from the same OpenAPI
 spec so REST and MCP never drift. Full reference:
 [docs/tools.md](docs/tools.md).
@@ -233,14 +233,16 @@ spec so REST and MCP never drift. Full reference:
 |---|---|
 | **Customers** (CRM sync, full CRUD) | `listCustomers` · `createCustomer` · `getCustomer` · `updateCustomer` · `deleteCustomer` |
 | **Bookings** (create & track) | `createJobRequest` · `listJobRequests` · `getJobRequest` · `getJobRequestTimeline` · `listJobRequestBookingWindows` · `listJobRequestChanges` |
-| **Catalog** (read-only) | `listJobTypes` · `getJobType` · `listSkills` · `listSkillCategories` · `listSkillsByCategory` · `listServiceAreas` · `getServiceArea` |
+| **Catalog** (reads) | `listJobTypes` · `getJobType` · `listSkills` · `listSkillCategories` · `listSkillsByCategory` · `listServiceAreas` · `getServiceArea` |
+| **Catalog management** (import sync) | `createJobType` · `updateJobType` · `deleteJobType` · `createSkillCategory` · `deleteSkillCategory` · `createSkill` · `updateSkill` · `deleteSkill` · `createServiceArea` · `updateServiceArea` · `deleteServiceArea` · `createVehicle` · `updateVehicle` · `deleteVehicle` |
 | **Team & fleet** (reads) | `listTechnicians` · `getTechnician` · `listVehicles` · `getVehicle` |
 | **Team roster management** (HR-system sync) | `createTechnician` · `updateTechnician` · `deleteTechnician` · `replaceTechnicianBuddies` · `replaceTechnicianLeads` · `replaceTechnicianVehicles` · `replaceTechnicianServiceAreas` · `replaceTechnicianSkills` · `listTechnicianSkills` |
 | **Matching & scheduling** (read-only, engine-computed) | `listMatchingSlots` · `listCrewCandidates` · `getTechnicianSchedule` · `listNearbyTechnicians` |
-| **Scheduling actions** (drive the schedule) | `quoteJobRequest` · `confirmJobRequest` · `previewJobRequestMove` · `commitJobRequestMove` |
+| **Scheduling actions** (drive the schedule) | `quoteJobRequest` · `confirmJobRequest` · `bookAndConfirmJobRequest` · `previewJobRequestMove` · `commitJobRequestMove` |
 | **Priority & emergency dispatch** (P0–P3, SLA, cascade) | `updateJobPriority` · `listEmergencyCandidates` · `previewEmergencyReschedule` · `commitEmergencyReschedule` |
 | **Absence resolve** (sick call — re-staff a technician's whole day) | `previewAbsenceResolve` · `commitAbsenceResolve` |
 | **Technician time off** (record a sick day / leave, read existing leave) | `createTechnicianTimeOff` · `listTechnicianTimeOff` |
+| **Webhooks** (REST-hook triggers: subscribe / unsubscribe) | `listWebhookEventTypes` · `createWebhookEndpoint` · `deleteWebhookEndpoint` |
 
 Typical agent flow:
 
@@ -253,6 +255,15 @@ quoteJobRequest → confirmJobRequest      → scheduled (auto or forced technic
    (quote answers 409 JOB_REQUEST_QUOTE_NOT_SCHEDULABLE when the customer
     would see no slot — agree a new time, or resend with force: true)
 getJobRequest / listJobRequestChanges    → track status
+```
+
+One-call flow for a phone call or an automation (voice agents: connect to
+`https://api.crisphive.com/mcp?profile=voice` for a small tool set):
+
+```
+listCustomers (phone: "+16135550188")    → is the caller already a customer?
+bookAndConfirmJobRequest                 → booked + scheduled, or confirmed:false + refusal
+                                           (the job then waits in the coordinator's queue)
 ```
 
 Emergency (P0) flow:

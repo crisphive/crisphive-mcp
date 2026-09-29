@@ -2,6 +2,172 @@
   "basePath": "/v1",
   "tools": [
     {
+      "name": "bookAndConfirmJobRequest",
+      "title": "Book, schedule and confirm a job in one call",
+      "description": "Book, schedule and confirm a job in one call\n\nCreates the job, quotes it (job_duration_minutes, or the job type's default_duration_minutes) and confirms it at scheduled_at on the customer's behalf — the dashboard's \"book for a caller\" in a single request, built for voice agents and automation platforms that cannot run create → quote → slots → confirm.\n\nCustomer: send `customer_id`, or `customer` (+ `address`) to match-or-create by phone/email — a caller who already exists is matched, never duplicated. Find a caller first with listCustomers?phone=.\n\nEvery input is validated BEFORE anything is written (time and business timezone, future start, a duration or a job-type default, active job type, phone format); those failures are ordinary 4xx and create nothing.\n\n⚠️ Once the job is created it is never discarded, and the call answers 200 even if scheduling then fails: `confirmed: false` with `refusal` (stage + the exact error_code/data the quote or confirm endpoint would have returned, e.g. JOB_REQUEST_NO_TECHNICIAN_AVAILABLE with blockers). The job is then quoted and waiting in the coordinator's queue — tell the caller the office will confirm a time. Retry with the SAME Idempotency-Key to replay the result; a new key books a second job.",
+      "method": "POST",
+      "path": "/job-requests/book-and-confirm",
+      "pathParams": [],
+      "queryParams": [],
+      "headerParams": [
+        {
+          "arg": "idempotency_key",
+          "header": "Idempotency-Key"
+        }
+      ],
+      "bodyParams": [
+        "address",
+        "customer",
+        "customer_id",
+        "description",
+        "job_duration_minutes",
+        "job_type_id",
+        "priority",
+        "scheduled_at",
+        "skill_ids",
+        "technician_id"
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "idempotency_key": {
+            "type": "string",
+            "description": "Makes retries safe: a repeat send with the same key returns the original result instead of booking again (sent as the Idempotency-Key header)"
+          },
+          "address": {
+            "allOf": [
+              {
+                "properties": {
+                  "city": {
+                    "maxLength": 100,
+                    "type": "string"
+                  },
+                  "country": {
+                    "maxLength": 100,
+                    "type": "string"
+                  },
+                  "formatted": {
+                    "maxLength": 500,
+                    "type": "string"
+                  },
+                  "latitude": {
+                    "maximum": 90,
+                    "minimum": -90,
+                    "type": "number"
+                  },
+                  "line": {
+                    "maxLength": 255,
+                    "type": "string"
+                  },
+                  "line2": {
+                    "maxLength": 255,
+                    "type": "string"
+                  },
+                  "longitude": {
+                    "maximum": 180,
+                    "minimum": -180,
+                    "type": "number"
+                  },
+                  "postal_code": {
+                    "maxLength": 32,
+                    "type": "string"
+                  },
+                  "state": {
+                    "maxLength": 100,
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            ],
+            "description": "Service address. REQUIRED with `customer`; ignored with `customer_id` (the stored customer address is used). Missing coordinates are geocoded."
+          },
+          "customer": {
+            "allOf": [
+              {
+                "properties": {
+                  "email": {
+                    "description": "Email. Phone or email is required.",
+                    "maxLength": 255,
+                    "type": "string"
+                  },
+                  "full_name": {
+                    "description": "Customer's full name. Required with `customer`.",
+                    "example": "Marie Tremblay",
+                    "maxLength": 255,
+                    "type": "string"
+                  },
+                  "phone": {
+                    "description": "Phone in E.164 with the leading + (e.g. +16135550142); separators are stripped. A bare national number is refused with PHONE_INVALID. Phone or email is required.",
+                    "example": "+16135550142",
+                    "maxLength": 32,
+                    "type": "string"
+                  },
+                  "sms_opt_in": {
+                    "description": "Record SMS consent ONLY if the caller explicitly agreed to texts (a voice agent must ask). Without it the customer gets email, never SMS.",
+                    "type": "boolean"
+                  }
+                },
+                "type": "object"
+              }
+            ],
+            "description": "A caller who may or may not exist yet: matched by phone/email against the business's customers (no duplicate is created for a known caller), created otherwise. Send this OR `customer_id`."
+          },
+          "customer_id": {
+            "description": "UUID of an existing customer. Send this OR `customer`, not both.",
+            "format": "uuid",
+            "type": "string"
+          },
+          "description": {
+            "description": "Free-text description of the work. Optional; max 2000 chars.",
+            "maxLength": 2000,
+            "type": "string"
+          },
+          "job_duration_minutes": {
+            "description": "Hands-on work minutes. Optional when the job type has a default_duration_minutes.",
+            "example": 90,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "job_type_id": {
+            "description": "UUID of the job type: it classifies the job and supplies default_duration_minutes when job_duration_minutes is omitted. Optional: omitted, the business's DEFAULT job type (is_default, the seeded \"General\", 60 min + 15 + 15 unless the business changed it) is used.",
+            "format": "uuid",
+            "type": "string"
+          },
+          "priority": {
+            "description": "Scheduling priority p0–p3. Optional; omitted = the business default.",
+            "enum": [
+              "p0",
+              "p1",
+              "p2",
+              "p3"
+            ],
+            "type": "string"
+          },
+          "scheduled_at": {
+            "description": "Start time — a BUSINESS-LOCAL wall clock, same rule as confirmJobRequest: canonical `2026-09-30T10:00:00`, seconds optional, a space may replace the T; an offset is accepted only when it agrees with the business timezone. Must be in the future.",
+            "example": "2026-09-30T10:00:00",
+            "format": "date-time",
+            "type": "string"
+          },
+          "skill_ids": {
+            "description": "UUIDs of skills the work needs. Optional; up to 20.",
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 20,
+            "type": "array"
+          },
+          "technician_id": {
+            "description": "Force a specific lead technician (feasibility still enforced). Omit to let Crisphive pick.",
+            "format": "uuid",
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
       "name": "commitAbsenceResolve",
       "title": "Commit the previewed re-staffing of a technician's day",
       "description": "Commit the previewed re-staffing of a technician's day\n\nApplies the plan returned by /absence/preview, ATOMICALLY: every assignment in one transaction (all or nothing), each job re-staffed onto its alternate at its unchanged window, its \"needs attention\" flag cleared, its status_version bumped. Commit VERIFIES and never re-solves — send `assignments[]` copied from `preview.resolved[]` (you may drop rows, never add or re-point them) and, to ACCEPT a priced alternative from `preview.unresolved[].alternatives[]`, the same row plus its `alternative_kind` and (for a reschedule kind) its `start_at`/`end_at`; the engine re-checks that technician at that window under exactly that relaxation. A reschedule kind rewrites `scheduled_at`, notifies the customer of the NEW TIME (`job_rescheduled`, never `tech_reassigned` on top) and fires `job_request.rescheduled`; the response row then carries `alternative_kind`, `cost`, `original_start_at`/`original_end_at` and `window_preserved: false`. Requires a time-off record covering EVERY day of the range for the technician (pending or approved); a pending one is APPROVED by the commit, because the engine's feasibility filter reads approved time-off only and without it the absent technician stays bookable everywhere else. The response mirrors the preview plus per-job `notification` evidence (dispatched | skipped + reason — what the routing WILL do, never proof of delivery), `attention_cleared`, and `time_off`. Supports Idempotency-Key. Requires job_manage AND schedule_manage (the approval is a scheduling action). See ABSENCE_RESOLVE_DESIGN.md.\n409 NEXT STEPS: ABSENCE_RESOLVE_TIME_OFF_REQUIRED — the absence is not recorded well enough to commit against: `data.uncovered_dates[]` (days no eligible record touches) and `data.uncovered_jobs[]` (jobs no single eligible record spans); eligible = approved records, plus PENDING records whose span lies INSIDE the range — a pending record WIDER than the range (somebody's leave request) is never approved by this commit and is listed in `data.pending_wider_time_off_ids[]` for a human to decide. Record a sick-day time-off via `data.create_via` (POST /business/technician-time-off, pending is enough), then commit again. ABSENCE_RESOLVE_PLAN_DRIFTED — the world moved since the preview; `data.drifted[]` names the job (job_id/short_code/expected_version) and `reason` says how: `version` (the row changed or left the technician's lane), `infeasible` (the alternate can no longer take it), `occupied` (the alternate's lane overlapped after the write). No job was written; `data.time_offs[]` lists any pending record the commit had already approved — re-preview, show the new plan, commit again. ABSENCE_RESOLVE_NO_ORPHANED_JOBS — the board is empty for the range.",
@@ -601,7 +767,7 @@
             "type": "array"
           },
           "job_type_id": {
-            "description": "UUID of the job type to classify this job. Optional; null leaves the job unclassified.",
+            "description": "UUID of the job type to classify this job. Optional: omitted, the business's DEFAULT job type (`is_default`, the seeded \"General\") is used, so every new job has a type and can be quoted from its default duration.",
             "format": "uuid",
             "type": "string"
           },
@@ -640,7 +806,7 @@
     {
       "name": "createJobType",
       "title": "Add a job type to the catalog",
-      "description": "Add a job type to the catalog\n\nCreates a kind of work customers can book, such as \"Annual boiler service\" or \"Drain unblocking\". Job types classify bookings: createJobRequest takes an optional `job_type_id` from this catalog and the job keeps the type's name as it was at booking time.\n\n`name` is the only required field and must be unique in the business (JOB_TYPE_DUPLICATE). `status` defaults to active. An inactive type stays in the catalog but cannot be chosen for new job requests; use that rather than deleting a type you may revive.\n\nSend an Idempotency-Key header (the `idempotency_key` argument over MCP) so a retried call replays the original response instead of creating a duplicate type.\n\nThis defines the catalog, not a booking. To book actual work use createJobRequest and reference the job type there.",
+      "description": "Add a job type to the catalog\n\nCreates a kind of work customers can book, such as \"Annual boiler service\" or \"Drain unblocking\". Job types classify bookings: createJobRequest takes an optional `job_type_id` from this catalog and the job keeps the type's name as it was at booking time.\n\n`name` is the only required field and must be unique in the business (JOB_TYPE_DUPLICATE). `status` defaults to active. An inactive type stays in the catalog but cannot be chosen for new job requests; use that rather than deleting a type you may revive.\n\nSend an Idempotency-Key header (the `idempotency_key` argument over MCP) so a retried call replays the original response instead of creating a duplicate type.\n\nOptional default_duration_minutes (+ default_mobilization_minutes / default_demobilization_minutes) set how long this kind of work usually takes: quoteJobRequest uses them when it is sent no job_duration_minutes, so an automation or voice agent can schedule the job without knowing the length. A buffer needs a duration (JOB_TYPE_INVALID_DEFAULT_DURATION).\n\nThis defines the catalog, not a booking. To book actual work use createJobRequest and reference the job type there.",
       "method": "POST",
       "path": "/job-types",
       "pathParams": [],
@@ -652,6 +818,9 @@
         }
       ],
       "bodyParams": [
+        "default_demobilization_minutes",
+        "default_duration_minutes",
+        "default_mobilization_minutes",
         "name",
         "status"
       ],
@@ -661,6 +830,27 @@
           "idempotency_key": {
             "type": "string",
             "description": "Unique key making retries safe: a repeat send with the same key replays the original response (header Idempotent-Replayed: true) instead of re-running the operation. Reusing a key with a different body returns 422 IDEMPOTENCY_KEY_REUSE. (sent as the Idempotency-Key header)"
+          },
+          "default_demobilization_minutes": {
+            "description": "Default demobilization (teardown) minutes, 0–1440; used together with the default duration. Requires a default duration. Omit or 0 = no default.",
+            "example": 10,
+            "maximum": 1440,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "default_duration_minutes": {
+            "description": "Default hands-on work duration in minutes for this kind of work (1–20160). A quote that sends no job_duration_minutes uses it, which is what lets an automation or voice agent schedule a job without knowing how long the work takes. Omit or 0 = no default.",
+            "example": 90,
+            "maximum": 20160,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "default_mobilization_minutes": {
+            "description": "Default mobilization (setup/travel-prep) minutes, 0–1440; used together with the default duration. Requires a default duration. Omit or 0 = no default.",
+            "example": 15,
+            "maximum": 1440,
+            "minimum": 0,
+            "type": "integer"
           },
           "name": {
             "description": "Job-type name (required) — what the booking form shows as the kind of\nwork. Stored as the canonical English value; per-locale names are a\ndashboard authoring feature.",
@@ -1193,6 +1383,69 @@
       }
     },
     {
+      "name": "createWebhookEndpoint",
+      "title": "Create a webhook endpoint",
+      "description": "Create a webhook endpoint\n\nRegisters an HTTPS URL that Crisphive will POST events to, and immediately sends a signed verification `ping`. If your receiver answers 2xx the endpoint is created `active`; otherwise it is created `pending_verification` (receives NO events) — fix the receiver, then re-verify it from the Crisphive dashboard, or (on the public API, where verify is not exposed) delete it and create it again. Automation platforms subscribing a REST hook should filter out the `ping` event on their side. The response includes the signing `secret` ONE TIME — store it; you verify the `Crisphive-Signature` header with it and it cannot be retrieved again. `event_types` empty = every event the calling credential may READ: `customer.*` needs customers_view, `technician.*` team_view, `job_request.*` job_view, because a subscription streams that data to your URL. Naming an event the credential cannot read is refused with WEBHOOK_EVENT_NOT_PERMITTED (403, `data.event_types` + `data.required_permissions`). The endpoint is bound to the caller's current environment (live/sandbox).",
+      "method": "POST",
+      "path": "/webhooks",
+      "pathParams": [],
+      "queryParams": [],
+      "headerParams": [
+        {
+          "arg": "idempotency_key",
+          "header": "Idempotency-Key"
+        }
+      ],
+      "bodyParams": [
+        "description",
+        "event_types",
+        "expires_in_days",
+        "url"
+      ],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "idempotency_key": {
+            "type": "string",
+            "description": "Unique key making retries safe: a repeat send with the same key replays the original response (header Idempotent-Replayed: true) instead of minting a second endpoint + secret. Reusing a key with a different body returns 422. (sent as the Idempotency-Key header)"
+          },
+          "description": {
+            "description": "Optional human label shown in the dashboard.",
+            "example": "Production sync",
+            "maxLength": 255,
+            "type": "string"
+          },
+          "event_types": {
+            "description": "Event types to receive. Empty = every event the credential may READ (customer.* needs customers_view, technician.* team_view, job_request.* job_view); naming one it cannot read is WEBHOOK_EVENT_NOT_PERMITTED. See GET /business/webhooks/event-types.",
+            "example": [
+              "job_request.completed",
+              "customer.created"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 50,
+            "type": "array"
+          },
+          "expires_in_days": {
+            "description": "Signing-secret lifetime in days. Omit for the 30-day default; 1..365 to\nchoose your own. When it lapses the endpoint stops delivering until you\nrotate — see POST /business/webhooks/{id}/rotate-secret.",
+            "example": 30,
+            "maximum": 365,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "url": {
+            "description": "HTTPS callback URL Crisphive will POST events to. Required; absolute http(s).",
+            "example": "https://app.example.com/crisphive/webhook",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ]
+      }
+    },
+    {
       "name": "deleteCustomer",
       "title": "Delete a customer",
       "description": "Delete a customer\n\nSoft-deletes a customer record, removing it from the active customer directory; existing bookings keep their customer snapshot.",
@@ -1360,6 +1613,31 @@
           "id": {
             "type": "string",
             "description": "Vehicle ID"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "deleteWebhookEndpoint",
+      "title": "Delete a webhook endpoint",
+      "description": "Delete a webhook endpoint\n\nUnsubscribes the endpoint: no further events are delivered to it, including retries still pending. This is the \"unsubscribe\" half of a REST-hook trigger; call it when the automation is turned off. Endpoints are scoped to the credential's environment (live/sandbox), so a sandbox key cannot delete a live endpoint.",
+      "method": "DELETE",
+      "path": "/webhooks/{id}",
+      "pathParams": [
+        "id"
+      ],
+      "queryParams": [],
+      "headerParams": [],
+      "bodyParams": [],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Webhook endpoint ID (UUID)"
           }
         },
         "required": [
@@ -1628,6 +1906,7 @@
       "pathParams": [],
       "queryParams": [
         "q",
+        "phone",
         "tier",
         "status",
         "preferred_technician_id",
@@ -1643,7 +1922,11 @@
         "properties": {
           "q": {
             "type": "string",
-            "description": "Search name, UID, phone, email"
+            "description": "Fuzzy search over name, UID, phone, email"
+          },
+          "phone": {
+            "type": "string",
+            "description": "EXACT caller lookup by phone in E.164 with the leading + (e.g. +16135550188). Separators are stripped, so '+1 (613) 555-0188' works; a bare national number without a country code is refused with PHONE_INVALID. Use this rather than q to identify a caller — q is a substring match and can return the wrong person."
           },
           "tier": {
             "items": {
@@ -2331,6 +2614,21 @@
       }
     },
     {
+      "name": "listWebhookEventTypes",
+      "title": "List subscribable webhook event types",
+      "description": "List subscribable webhook event types\n\nReturns the catalog of event types you can subscribe a webhook to (resource.action, e.g. job_request.completed, customer.created). The catalog is extend-only: a published type is never renamed or removed.",
+      "method": "GET",
+      "path": "/webhooks/event-types",
+      "pathParams": [],
+      "queryParams": [],
+      "headerParams": [],
+      "bodyParams": [],
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
       "name": "previewAbsenceResolve",
       "title": "Preview re-staffing a technician's whole day (sick call)",
       "description": "Preview re-staffing a technician's whole day (sick call)\n\nSolves (WITHOUT writing) the re-staffing of every job on a technician's board for a date range: each job is handed to an ALTERNATE lead technician at its UNCHANGED window — the customer's appointment never moves, two overlapping jobs never land on the same alternate, and the absent technician is never a candidate. `date`/`until_date` are business-local calendar days (inclusive, ≤ 14 days). Jobs the planner cannot re-staff come back in `unresolved` with a `reason_code` (no qualified technician free / crew job / multi-day job / already in progress) — a partial plan is a normal 200, not an error. `solver.duration_ms` is server-side planner time; `solver.deterministic` is true (same input ⇒ same plan). Read-only, safe to repeat; copy `resolved[]` into the commit body. No time-off record is required to preview. When the strict pass leaves a job unresolved, its row ALSO carries `alternatives[]` — the relaxation ladder's priced options, cheapest constraint first (ABSENCE_RESOLVE_DESIGN.md §9): `reassign_out_of_area` (same window, a lead outside the job's zone — cost.distance_km/travel_minutes), then `reschedule_same_day` / `reschedule_later_day` (the earliest free window on a qualified lead, in-area before out-of-area, up to 3 working days past until_date — cost.customer_renotified, cost.day_offset, cost.sla_breached). Each option is a PROPOSAL: nothing is applied until the coordinator copies it into the commit body with its `alternative_kind` (+ `start_at`/`end_at` for a reschedule). `alternatives` is an empty array when even the ladder found nothing; `solver.alternatives_truncated` is true when the ladder's time budget cut the search short. Displacing another customer's job and overtime are deliberately NOT offered. See ABSENCE_RESOLVE_DESIGN.md.",
@@ -2516,7 +2814,7 @@
     {
       "name": "quoteJobRequest",
       "title": "Fire quote (FIXED action — business)",
-      "description": "Fire quote (FIXED action — business)\n\nSends the quote: sets quoted_at + duration cols, advances pending_action to confirm_booking. Status stays `booking`.\nBefore writing, checks that the customer will see at least one slot: the same engine as the customer slot picker runs over the windows the customer asked for with THIS quote's duration (working hours, service areas, time-off, existing bookings, crew coverage). If no slot exists the quote is refused with 409 JOB_REQUEST_QUOTE_NOT_SCHEDULABLE; data.reason says why (outside_working_hours, requested_windows_passed, outside_service_area, off_shift, on_time_off, missing_required_skills, no_technician_available, ...) and data.blocked_by counts the roster per blocker. Send force=true to schedule it anyway after agreeing a time with the customer.",
+      "description": "Fire quote (FIXED action — business)\n\nSends the quote: sets quoted_at + duration cols, advances pending_action to confirm_booking. Status stays `booking`.\njob_duration_minutes may be omitted when the job's job type has a default_duration_minutes: the type's default duration and buffers are used (a buffer you send still wins). This is how an automation or voice agent schedules work it cannot size.\nBefore writing, checks that the customer will see at least one slot: the same engine as the customer slot picker runs over the windows the customer asked for with THIS quote's duration (working hours, service areas, time-off, existing bookings, crew coverage). If no slot exists the quote is refused with 409 JOB_REQUEST_QUOTE_NOT_SCHEDULABLE; data.reason says why (outside_working_hours, requested_windows_passed, outside_service_area, off_shift, on_time_off, missing_required_skills, no_technician_available, ...) and data.blocked_by counts the roster per blocker. Send force=true to schedule it anyway after agreeing a time with the customer.",
       "method": "POST",
       "path": "/job-requests/{id}/quote",
       "pathParams": [
@@ -2581,7 +2879,7 @@
             "type": "boolean"
           },
           "job_duration_minutes": {
-            "description": "Hands-on work duration in minutes (man-minutes for a crew job). Required, min 1.",
+            "description": "Hands-on work duration in minutes (man-minutes for a crew job), min 1. On POST /quote it may be OMITTED when the job's job type carries a default_duration_minutes: the quote then uses the type's default duration and its default buffers (a buffer you send still wins). No duration and no default answers 400 JOB_REQUEST_QUOTE_INVALID. PATCH /quote always requires it.",
             "example": 120,
             "minimum": 1,
             "type": "integer"
@@ -2603,8 +2901,7 @@
           }
         },
         "required": [
-          "id",
-          "job_duration_minutes"
+          "id"
         ]
       }
     },
@@ -2994,7 +3291,7 @@
     {
       "name": "updateJobType",
       "title": "Rename a job type or change its availability",
-      "description": "Rename a job type or change its availability\n\nEdits a catalog entry in place. A rename applies to NEW bookings only: every job stores the job-type name it was booked with, so existing and completed jobs keep their original label.\n\nPartial update: omit a field to keep it. `name` rejects \"\" because a type must stay identifiable, and must stay unique (JOB_TYPE_DUPLICATE). Setting `status` to inactive is the reversible way to take a type off the booking form; inactive types are refused for new job requests.\n\nRows the platform ships with (`is_system=true`, e.g. the default \"General\" type) cannot be modified and are refused with JOB_TYPE_SYSTEM_READ_ONLY. Create your own type instead if you need different wording.",
+      "description": "Rename a job type or change its availability\n\nEdits a catalog entry in place. A rename applies to NEW bookings only: every job stores the job-type name it was booked with, so existing and completed jobs keep their original label.\n\nPartial update: omit a field to keep it. `name` rejects \"\" because a type must stay identifiable, and must stay unique (JOB_TYPE_DUPLICATE). Setting `status` to inactive is the reversible way to take a type off the booking form; inactive types are refused for new job requests.\n\nDefault quote bundle: default_duration_minutes / default_mobilization_minutes / default_demobilization_minutes follow the same partial rule; omit to keep, 0 to clear, a value to set. Clearing the duration while a buffer stays is refused (JOB_TYPE_INVALID_DEFAULT_DURATION).\n\nRows the platform ships with (`is_system=true`, e.g. the default \"General\" type) keep their name and status read-only (JOB_TYPE_SYSTEM_READ_ONLY); their default quote bundle IS editable. Create your own type if you need different wording.",
       "method": "PUT",
       "path": "/job-types/{id}",
       "pathParams": [
@@ -3003,6 +3300,9 @@
       "queryParams": [],
       "headerParams": [],
       "bodyParams": [
+        "default_demobilization_minutes",
+        "default_duration_minutes",
+        "default_mobilization_minutes",
         "name",
         "status"
       ],
@@ -3012,6 +3312,27 @@
           "id": {
             "type": "string",
             "description": "Job Type ID"
+          },
+          "default_demobilization_minutes": {
+            "description": "Default demobilization (teardown) minutes, 0–1440; used together with the default duration. Requires a default duration. Omit = keep, 0 = clear.",
+            "example": 10,
+            "maximum": 1440,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "default_duration_minutes": {
+            "description": "Default hands-on work duration in minutes for this kind of work (1–20160). A quote that sends no job_duration_minutes uses it, which is what lets an automation or voice agent schedule a job without knowing how long the work takes. Omit = keep, 0 = clear.",
+            "example": 90,
+            "maximum": 20160,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "default_mobilization_minutes": {
+            "description": "Default mobilization (setup/travel-prep) minutes, 0–1440; used together with the default duration. Requires a default duration. Omit = keep, 0 = clear.",
+            "example": 15,
+            "maximum": 1440,
+            "minimum": 0,
+            "type": "integer"
           },
           "name": {
             "description": "nil = keep; min=1 rejects an explicit \"\".",

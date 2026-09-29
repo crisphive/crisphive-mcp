@@ -6,7 +6,7 @@
     "url": "https://github.com/crisphive/crisphive-mcp",
     "source": "github"
   },
-  "version": "2.3.0",
+  "version": "2.4.0",
   "websiteUrl": "https://docs.crisphive.com/mcp",
   "remotes": [
     {
@@ -19,7 +19,7 @@
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "@crisphive/mcp",
-      "version": "2.2.0",
+      "version": "2.3.0",
       "runtimeHint": "npx",
       "transport": {
         "type": "stdio"
