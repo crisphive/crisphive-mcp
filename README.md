@@ -156,7 +156,7 @@ Clients that only speak stdio can bridge with
 
 ### Local server (npm — `@crisphive/mcp`)
 
-This repository also ships a thin **local stdio server**: the same 65 tools
+This repository also ships a thin **local stdio server**: the same 66 tools
 (same names, same schemas — generated from the same `/v1` OpenAPI spec as the
 hosted endpoint), where each call is an HTTPS request to the Crisphive API
 with your key. No business logic runs locally.
@@ -224,7 +224,7 @@ PKCE. Full flow, scopes and token lifetimes:
 
 ## Tools
 
-65 tools, one per operation of the public `/v1` API — same names as the SDK
+66 tools, one per operation of the public `/v1` API — same names as the SDK
 methods (`listCustomers`, `createJobRequest`, …), derived from the same OpenAPI
 spec so REST and MCP never drift. Full reference:
 [docs/tools.md](docs/tools.md).
@@ -236,7 +236,7 @@ spec so REST and MCP never drift. Full reference:
 | **Catalog** (reads) | `listJobTypes` · `getJobType` · `listSkills` · `listSkillCategories` · `listSkillsByCategory` · `listServiceAreas` · `getServiceArea` |
 | **Catalog management** (import sync) | `createJobType` · `updateJobType` · `deleteJobType` · `createSkillCategory` · `deleteSkillCategory` · `createSkill` · `updateSkill` · `deleteSkill` · `createServiceArea` · `updateServiceArea` · `deleteServiceArea` · `createVehicle` · `updateVehicle` · `deleteVehicle` |
 | **Team & fleet** (reads) | `listTechnicians` · `getTechnician` · `listVehicles` · `getVehicle` |
-| **Team roster management** (HR-system sync) | `createTechnician` · `updateTechnician` · `deleteTechnician` · `replaceTechnicianBuddies` · `replaceTechnicianLeads` · `replaceTechnicianVehicles` · `replaceTechnicianServiceAreas` · `replaceTechnicianSkills` · `listTechnicianSkills` |
+| **Team roster management** (HR-system sync) | `listAssignableGroups` · `createTechnician` · `updateTechnician` · `deleteTechnician` · `replaceTechnicianBuddies` · `replaceTechnicianLeads` · `replaceTechnicianVehicles` · `replaceTechnicianServiceAreas` · `replaceTechnicianSkills` · `listTechnicianSkills` |
 | **Matching & scheduling** (read-only, engine-computed) | `listMatchingSlots` · `listCrewCandidates` · `getTechnicianSchedule` · `listNearbyTechnicians` |
 | **Scheduling actions** (drive the schedule) | `quoteJobRequest` · `confirmJobRequest` · `bookAndConfirmJobRequest` · `previewJobRequestMove` · `commitJobRequestMove` |
 | **Priority & emergency dispatch** (P0–P3, SLA, cascade) | `updateJobPriority` · `listEmergencyCandidates` · `previewEmergencyReschedule` · `commitEmergencyReschedule` |

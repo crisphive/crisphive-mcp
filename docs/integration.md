@@ -28,7 +28,7 @@ drift.
 
 > **Stdio-only client?** This guide covers the hosted remote endpoint. For
 > clients that only speak stdio (or self-hosted setups) there is also a local
-> package, **`@crisphive/mcp`** on npm — the same 65 tools, each call an HTTPS
+> package, **`@crisphive/mcp`** on npm — the same 66 tools, each call an HTTPS
 > request to `/v1` with your `CRISPHIVE_API_KEY`. See the README's
 > "Local server" section.
 
@@ -278,6 +278,20 @@ whole dispatch board.
   `data.blocked_by`) when the customer would get no slot in any window they
   asked for. Agree another time with the customer, or resend with
   `force: true`; never force silently.
+- **After-hours placement (p0 only)** — moving or inserting a p0 job onto a
+  day the business does not work needs a human's "I phoned the technician".
+  `previewJobRequestMove` / `previewEmergencyReschedule` answer such a drop
+  WITHOUT the flag, with `after_hours_override_required: true`; ask the
+  coordinator, then commit with `after_hours_override: true`. A commit (and
+  `confirmJobRequest`, `listEmergencyCandidates`) without the flag answers a
+  `409` whose `data.override_available` says whether the retry with the flag
+  will be accepted. Never set the flag on the user's behalf.
+- **Lowering a priority** — `updateJobPriority` returns `data.warnings[]`. An
+  `AFTER_HOURS` entry means the job still sits outside working hours after
+  leaving p0; offer to move it.
+- **Adding a technician** — `createTechnician` without `business_group_id`
+  joins the Technician group; for another role read the ids from
+  `listAssignableGroups` (a key or agent never sees Owner/Administrator).
 - **Result shape** — every tool returns the standard REST envelope as a text
   block *and* as `structuredContent`:
   ```json
