@@ -28,7 +28,7 @@ drift.
 
 > **Stdio-only client?** This guide covers the hosted remote endpoint. For
 > clients that only speak stdio (or self-hosted setups) there is also a local
-> package, **`@crisphive/mcp`** on npm — the same 66 tools, each call an HTTPS
+> package, **`@crisphive/mcp`** on npm — the same 67 tools, each call an HTTPS
 > request to `/v1` with your `CRISPHIVE_API_KEY`. See the README's
 > "Local server" section.
 
@@ -252,8 +252,9 @@ tokens stop working on the next request. A tool outside the effective
 permissions answers `403`. Because the agent is a person, the business-wide job
 reads (job list/changes/detail/timeline, booking windows, time segments, crew
 candidates, nearby technicians, a technician's schedule) also require
-`job_manage`, as they do on the dashboard: a technician's agent cannot read the
-whole dispatch board.
+`job_manage` or the read-only `job_view_all`, as they do on the dashboard: a
+technician's agent cannot read the whole dispatch board. A restricted API key
+reads them with `job_view` or `job_view_all`.
 
 ---
 
@@ -292,6 +293,11 @@ whole dispatch board.
 - **Adding a technician** — `createTechnician` without `business_group_id`
   joins the Technician group; for another role read the ids from
   `listAssignableGroups` (a key or agent never sees Owner/Administrator).
+  `assignment_tier` is ignored for Booking Coordinator, Administrator and
+  Viewer (office roles are never assigned jobs).
+- **Removing a technician** — `deleteTechnician` answers
+  `409 TECHNICIAN_HAS_OPEN_JOBS` (`data.open_job_count`) while they still hold
+  open jobs; re-staff those first.
 - **Result shape** — every tool returns the standard REST envelope as a text
   block *and* as `structuredContent`:
   ```json
@@ -308,7 +314,10 @@ whole dispatch board.
 - **One-call booking** — `bookAndConfirmJobRequest` books, quotes and
   confirms. A scheduling refusal after the job exists is a `200` with
   `confirmed: false` + `refusal` (the job waits in the coordinator's queue);
-  retry only with the SAME `idempotency_key`.
+  retry only with the SAME `idempotency_key`. For a P0, send
+  `emergency` (`dispatch: "now"` + `mode` + `expected_move_ids` from
+  `previewEmergencyReschedule`) to book and commit the displacement cascade in
+  the same call.
 - **Tool profiles** — `https://api.crisphive.com/mcp?profile=voice` (also
   `dispatch`, `crm`) lists a small subset of tools, for clients such as voice
   platforms that load every tool a server offers. Tools outside the profile are

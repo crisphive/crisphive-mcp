@@ -4,7 +4,7 @@
     {
       "name": "bookAndConfirmJobRequest",
       "title": "Book, schedule and confirm a job in one call",
-      "description": "Book, schedule and confirm a job in one call\n\nCreates the job, quotes it (job_duration_minutes, or the job type's default_duration_minutes) and confirms it at scheduled_at on the customer's behalf — the dashboard's \"book for a caller\" in a single request, built for voice agents and automation platforms that cannot run create → quote → slots → confirm.\n\nCustomer: send `customer_id`, or `customer` (+ `address`) to match-or-create by phone/email — a caller who already exists is matched, never duplicated. Find a caller first with listCustomers?phone=.\n\nEvery input is validated BEFORE anything is written (time and business timezone, future start, a duration or a job-type default, active job type, phone format); those failures are ordinary 4xx and create nothing.\n\n⚠️ Once the job is created it is never discarded, and the call answers 200 even if scheduling then fails: `confirmed: false` with `refusal` (stage + the exact error_code/data the quote or confirm endpoint would have returned, e.g. JOB_REQUEST_NO_TECHNICIAN_AVAILABLE with blockers). The job is then quoted and waiting in the coordinator's queue — tell the caller the office will confirm a time. Retry with the SAME Idempotency-Key to replay the result; a new key books a second job.",
+      "description": "Book, schedule and confirm a job in one call\n\nCreates the job, quotes it (job_duration_minutes, or the job type's default_duration_minutes) and confirms it at scheduled_at on the customer's behalf — the dashboard's \"book for a caller\" in a single request, built for voice agents and automation platforms that cannot run create → quote → slots → confirm.\n\nCustomer: send `customer_id`, or `customer` (+ `address`) to match-or-create by phone/email — a caller who already exists is matched, never duplicated. Find a caller first with listCustomers?phone=.\n\nEvery input is validated BEFORE anything is written (time and business timezone, future start, a duration or a job-type default, non-negative mobilization/demobilization minutes, active job type, phone format); those failures are ordinary 4xx and create nothing.\n\n⚠️ A `technician_id` the engine cannot honour at that time is refused BEFORE anything is written: `409 JOB_REQUEST_TECH_INFEASIBLE`, no job, no customer, no webhook. Change the technician or the time and send again with a NEW Idempotency-Key: like every 4xx here the 409 is cached against its key for 24h, so the same key replays it (same body) or answers 422 IDEMPOTENCY_KEY_REUSE (changed body). This check is BEST-EFFORT — if the scheduling engine cannot be reached it is skipped and the call proceeds, so a pinned request can still come back as the 200 + `refusal` below. Handle both.\n\n⚠️ ONE carve-out: a `p0` whose pinned technician is merely BUSY is NOT refused here. The job is created and the call answers 200 + `refusal` carrying JOB_REQUEST_P0_REQUIRES_DISPLACEMENT, because the remedy for that code is the emergency flow and listEmergencyCandidates / previewEmergencyReschedule / commitEmergencyReschedule all require `emergency_job_id` — a 409 carries no job id. Read `job_id` off the 200 and run the emergency flow; do not re-book. Every other doomed pin on a `p0` (out of area, missing skills, not a lead) still answers 409.\n\n⚠️ A SECOND carve-out, narrower: for a `p0`, a PERSONAL-CALENDAR overlap on the pinned technician is not refused here either — naming them is treated as having already phoned them — and the call answers 200 + `confirmed: true`. Nothing on this response discloses it; the only record is the business's activity feed (`job_calendar_override`). `calendar_busy`/`calendar_conflict` therefore never appear in the 409 reason vocabulary below when the pin is a `p0` naming a technician explicitly (this endpoint never books a crew, so the exclusion is unconditional here).\n\n⚠️ Otherwise, once the job is created it is never discarded, and the call answers 200 even if scheduling then fails: `confirmed: false` with `refusal` (stage + the exact error_code/data the quote or confirm endpoint would have returned, e.g. JOB_REQUEST_NO_TECHNICIAN_AVAILABLE with blockers). The job is then quoted and waiting in the coordinator's queue — tell the caller the office will confirm a time. Retry with the SAME Idempotency-Key to replay the result; a new key books a second job.\n\nP0 dispatch: send `emergency` with `priority: \"p0\"`. `dispatch: \"now\"` plans the displacement cascade BEFORE anything is written — a refusal is a 409 creating nothing — then books, quotes and commits it. `dispatch: \"later\"` parks a quoted P0 in the tray and ignores the other fields.\n\n⚠️ `emergency.expected_move_ids` is REQUIRED with `dispatch: \"now\"` and has three meanings: omitted is refused, `[]` means \"my preview showed no displacement\" and commits a free lane, and a named set is the fence. Get the ids from previewEmergencyReschedule.\n\n⚠️ A refusal AFTER the job is created answers 200 with `confirmed: false` and `refusal.stage: \"dispatch\"`. Read `job_id`, re-preview with previewEmergencyReschedule and commit with commitEmergencyReschedule. Never re-book.",
       "method": "POST",
       "path": "/job-requests/book-and-confirm",
       "pathParams": [],
@@ -19,9 +19,12 @@
         "address",
         "customer",
         "customer_id",
+        "demobilization_minutes",
         "description",
+        "emergency",
         "job_duration_minutes",
         "job_type_id",
+        "mobilization_minutes",
         "priority",
         "scheduled_at",
         "skill_ids",
@@ -80,7 +83,7 @@
                 "type": "object"
               }
             ],
-            "description": "Service address. REQUIRED with `customer`; ignored with `customer_id` (the stored customer address is used). Missing coordinates are geocoded."
+            "description": "Service address. REQUIRED with `customer`. OPTIONAL with `customer_id`: when sent it is used for THIS JOB and the stored customer address is only the fallback when it is omitted — it is never written back to the customer record. Missing coordinates are geocoded."
           },
           "customer": {
             "allOf": [
@@ -118,10 +121,64 @@
             "format": "uuid",
             "type": "string"
           },
+          "demobilization_minutes": {
+            "description": "Demobilization (teardown) minutes after the work, min 0 — same rules as mobilization_minutes.",
+            "example": 15,
+            "minimum": 0,
+            "type": "integer"
+          },
           "description": {
             "description": "Free-text description of the work. Optional; max 2000 chars.",
             "maxLength": 2000,
             "type": "string"
+          },
+          "emergency": {
+            "allOf": [
+              {
+                "properties": {
+                  "after_hours_override": {
+                    "description": "Place this P0 outside working hours / approved time-off — you have phoned the technician and they agreed.",
+                    "type": "boolean"
+                  },
+                  "dispatch": {
+                    "description": "\"now\" commits the cascade in this call; \"later\" parks a quoted P0 in the tray and ignores every other field here.",
+                    "enum": [
+                      "now",
+                      "later"
+                    ],
+                    "example": "now",
+                    "type": "string"
+                  },
+                  "displacement_mode": {
+                    "description": "Fate of displaced jobs: reschedule (default) or reassign. Genuinely optional, unlike mode — omitted means reschedule. Must match the preview.",
+                    "enum": [
+                      "reschedule",
+                      "reassign"
+                    ],
+                    "type": "string"
+                  },
+                  "expected_move_ids": {
+                    "description": "The displaced job IDs your preview returned. REQUIRED with dispatch \"now\". Send [] when the preview showed no displacement — an omitted key is refused, an empty array commits a free lane.",
+                    "items": {
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "mode": {
+                    "description": "Cascade mode: overtime = displaced jobs stay same-day; next_day = overflow rolls to the next working day. REQUIRED with dispatch \"now\" (omitted is a 400 EMERGENCY_RESCHEDULE_INVALID_INPUT, data.field = \"emergency.mode\"); ignored with \"later\". Must match the preview.",
+                    "enum": [
+                      "overtime",
+                      "next_day"
+                    ],
+                    "example": "overtime",
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            ],
+            "description": "P0 dispatch. Present only with priority p0 (or a business whose default priority is p0). See the endpoint description."
           },
           "job_duration_minutes": {
             "description": "Hands-on work minutes. Optional when the job type has a default_duration_minutes.",
@@ -133,6 +190,12 @@
             "description": "UUID of the job type: it classifies the job and supplies default_duration_minutes when job_duration_minutes is omitted. Optional: omitted, the business's DEFAULT job type (is_default, the seeded \"General\", 60 min + 15 + 15 unless the business changed it) is used.",
             "format": "uuid",
             "type": "string"
+          },
+          "mobilization_minutes": {
+            "description": "Mobilization (setup/travel-prep) minutes before the work, min 0 — same meaning as on quoteJobRequest. Optional: omitted, the job type's default_mobilization_minutes applies when job_duration_minutes is ALSO omitted, and 0 when you sent a duration (an explicit duration is never mixed with the type's buffers). A value you send always wins. Counted when checking whether a pinned technician_id is free.",
+            "example": 15,
+            "minimum": 0,
+            "type": "integer"
           },
           "priority": {
             "description": "Scheduling priority p0–p3. Optional; omitted = the business default.",
@@ -445,7 +508,7 @@
     {
       "name": "confirmJobRequest",
       "title": "Confirm a booking on behalf of the customer",
-      "description": "Confirm a booking on behalf of the customer\n\nFires the customer-actor `confirm_booking` action from the BUSINESS surface (audited as business_on_behalf). Two uses: (1) LIVE — staff confirm a slot for a customer who booked by phone; (2) SANDBOX — the customer magic-token surface is live-only (a sandbox job's link can never reach a real customer), so this is the ONLY way to drive a sandbox test job past booking (book → quote → confirm → assign → complete). Body carries the customer-chosen scheduled_at (business-local naive datetime).\nDECISION TABLE — every 409 this endpoint returns, and the correct NEXT STEP (branch on error_code, never on the HTTP status):\n• JOB_REQUEST_STAGE_CONFLICT — the job changed since you read it (NOTE: every FAILED confirm attempt also bumps status_version by design). Next: re-GET the job, retry with the fresh status_version.\n• JOB_REQUEST_ACTION_NOT_PENDING — the job is no longer at the confirm step (usually: already confirmed). Next: re-GET and show current status; do not retry.\n• JOB_REQUEST_NO_TECHNICIAN_AVAILABLE — the TIME is infeasible for everyone (outside working hours / the customer window, or nobody qualifies). Best-effort `data` breakdown: `considered` (roster size checked), `blocked_by` (histogram of blockers[0].kind → count, only kinds that actually blocked someone), `truncated` (roster larger than the check covered). Next: pick another time via booking-windows / time-segments. NOT an emergency case — displacement cannot conjure capacity.\n• JOB_REQUEST_TECH_INFEASIBLE — the FORCED technician can never take the job then; `data.reason` says why (blockers[0].kind): outside_service_area | missing_required_skills | not_lead_tier | no_working_day | on_time_off | off_shift | visit_too_long | cannot_arrive_in_time (see `data.earliest_feasible_at`, RFC3339 UTC — the first same-day time they CAN be on site → offer it) | not_available_today (diagnosis unavailable). `data.blockers[]` names EVERY cause, most-structural first (`data.technician` carries an id; `name` is always empty on this confirm path today — nothing here calls the name lookup move's TECH_NOT_FEASIBLE payload uses); a UI that reads only `reason` still works. Next: keep the tech and reschedule to earliest_feasible_at+, OR keep the time and drop technician_id (auto-pick) / choose another tech from time-segments. NOT an emergency case.\n• JOB_REQUEST_P0_REQUIRES_DISPLACEMENT — the ONLY code that routes to the EMERGENCY flow: the job is P0, the tech qualifies, but the lane is genuinely occupied. Next: POST emergency/candidates → preview → commit (the commit auto-confirms). Caveat: if the occupying jobs are themselves P0 the preview will reject with EMERGENCY_RESCHEDULE_SLOT_OCCUPIED (P0 never displaces P0) — then pick another tech/time.",
+      "description": "Confirm a booking on behalf of the customer\n\nFires the customer-actor `confirm_booking` action from the BUSINESS surface (audited as business_on_behalf). Two uses: (1) LIVE — staff confirm a slot for a customer who booked by phone; (2) SANDBOX — the customer magic-token surface is live-only (a sandbox job's link can never reach a real customer), so this is the ONLY way to drive a sandbox test job past booking (book → quote → confirm → assign → complete). Body carries the customer-chosen scheduled_at (business-local naive datetime).\nDECISION TABLE — every 409 this endpoint returns, and the correct NEXT STEP (branch on error_code, never on the HTTP status):\n• JOB_REQUEST_STAGE_CONFLICT — the job changed since you read it (NOTE: every FAILED confirm attempt also bumps status_version by design). Next: re-GET the job, retry with the fresh status_version.\n• JOB_REQUEST_ACTION_NOT_PENDING — the job is no longer at the confirm step (usually: already confirmed). Next: re-GET and show current status; do not retry.\n• JOB_REQUEST_NO_TECHNICIAN_AVAILABLE — the TIME is infeasible for everyone (outside working hours / the customer window, or nobody qualifies). Best-effort `data` breakdown: `considered` (roster size checked), `blocked_by` (histogram of blockers[0].kind → count, only kinds that actually blocked someone), `truncated` (roster larger than the check covered). Next: pick another time via booking-windows / time-segments. NOT an emergency case — displacement cannot conjure capacity.\n• JOB_REQUEST_TECH_INFEASIBLE — the FORCED technician cannot take the job then; `data.reason` says why (blockers[0].kind): outside_service_area | missing_required_skills | not_lead_tier | no_working_day | on_time_off | off_shift | calendar_busy | calendar_conflict | visit_too_long | occupied (they are already working then — `data.earliest_feasible_at` is when they are free) | cannot_arrive_in_time (see `data.earliest_feasible_at`, RFC3339 UTC — the first same-day time they CAN be on site → offer it) | not_available_today (diagnosis unavailable). `data.blockers[]` names EVERY cause, most-structural first; `data.technician` carries `{id, name}`, name best-effort (empty only when the lookup itself could not resolve) — EXCEPT on not_lead_tier, which carries a flat `data.technician_id` and no technician object. A UI that reads only `reason` still works. Next: keep the tech and reschedule to earliest_feasible_at+, OR keep the time and drop technician_id (auto-pick) / choose another tech from time-segments. NOT an emergency case.\n• JOB_REQUEST_P0_REQUIRES_DISPLACEMENT — the ONLY code that routes to the EMERGENCY flow: the job is P0, the tech qualifies, but the lane is genuinely occupied. Next: POST emergency/candidates → preview → commit (the commit auto-confirms). Caveat: if the occupying jobs are themselves P0 the preview will reject with EMERGENCY_RESCHEDULE_SLOT_OCCUPIED (P0 never displaces P0) — then pick another tech/time.",
       "method": "POST",
       "path": "/job-requests/{id}/confirm",
       "pathParams": [
@@ -496,7 +559,7 @@
             "type": "integer"
           },
           "technician_id": {
-            "description": "TechnicianID (BUSINESS confirm only — ignored on the customer surface):\nforce-assign the job to this technician instead of the ranked auto-pick.\nRanking is bypassed; feasibility (hours/time-off/geo/skills), the\nTierLead rule and the double-booking guard still apply — an infeasible\nforced tech rejects the confirm (P0 gets the displacement hint).",
+            "description": "TechnicianID (BUSINESS confirm only — ignored on the customer surface):\nforce-assign the job to this technician instead of the ranked auto-pick.\nRanking is bypassed; feasibility (hours/time-off/geo/skills), the\nTierLead rule and the double-booking guard still apply — an infeasible\nforced tech rejects the confirm (P0 gets the displacement hint).\n⚠️ One exception: for a SINGLE-PERSON p0 job, a PERSONAL-CALENDAR\noverlap on this exact technician no longer rejects — naming them here is\ntreated as having already phoned them, so the confirm succeeds and the\noverride is recorded on the business's activity feed (this response has\nno warnings array to carry it). A multi-member crew still rejects on it.",
             "format": "uuid",
             "type": "string"
           }
@@ -1059,7 +1122,7 @@
     {
       "name": "createTechnician",
       "title": "Add a technician",
-      "description": "Add a technician\n\nCreates a technician membership under the current business. If the phone/email matches an existing user, their account is linked. Otherwise a new user identity is created. Either way the membership starts active. The new member is notified (live mode only, best-effort): an email when `email` is supplied, an SMS when `phone` is supplied, both when both — informational only, no activation step (login stays passwordless: magic link / OTP). Re-adding someone: if the person is currently SUSPENDED on this business (a dashboard action — not reachable via this API), the create REACTIVATES that existing membership (same technician id, their existing group; also notified). A technician REMOVED with deleteTechnician is a closed membership: re-adding the same email/phone links the SAME underlying person (no duplicate identity) but creates a FRESH membership with a NEW id — history stays under the old one. Owner/Administrator groups cannot be assigned via API key, and not at all in sandbox mode.\n\nOptional relations (all validated; any missing id → 404 TECHNICIAN_NOT_FOUND with `missing_ids`): `buddy_ids` sets this technician's buddy list (use when creating a lead); `lead_ids` adds this technician as a buddy of each named lead (use when creating a buddy — the buddy-side way to attach the same lead↔buddy relation); `service_area_ids` assigns the technician to those service areas.\n\n`start_location_type=office` snapshots the business address + coordinates into the technician at create time; `address`, `start_location_lat`, `start_location_long` in the body are ignored. Requires the business to have coordinates set (else 400 BUSINESS_LOCATION_MISSING). `start_location_type=home` (or empty) uses the address + coordinates from the body.",
+      "description": "Add a technician\n\nCreates a technician membership under the current business. If the phone/email matches an existing user, their account is linked. Otherwise a new user identity is created. Either way the membership starts active. The new member is notified (live mode only, best-effort): an email when `email` is supplied, an SMS when `phone` is supplied, both when both — informational only, no activation step (login stays passwordless: magic link / OTP). Re-adding someone: if the person is currently SUSPENDED on this business (a dashboard action — not reachable via this API), the create REACTIVATES that existing membership (same technician id, their existing group; also notified). A technician REMOVED with deleteTechnician is a closed membership: re-adding the same email/phone links the SAME underlying person (no duplicate identity) but creates a FRESH membership with a NEW id — history stays under the old one. Owner/Administrator groups cannot be assigned via API key, and not at all in sandbox mode. `assignment_tier` (what the scheduler assigns jobs by) is ignored — stored empty, no error — for the Booking Coordinator, Administrator and Viewer roles, which are never assigned jobs; a reactivated member of those roles also comes back without a tier.\n\nOptional relations (all validated; any missing id → 404 TECHNICIAN_NOT_FOUND with `missing_ids`): `buddy_ids` sets this technician's buddy list (use when creating a lead); `lead_ids` adds this technician as a buddy of each named lead (use when creating a buddy — the buddy-side way to attach the same lead↔buddy relation); `service_area_ids` assigns the technician to those service areas.\n\n`start_location_type=office` snapshots the business address + coordinates into the technician at create time; `address`, `start_location_lat`, `start_location_long` in the body are ignored. Requires the business to have coordinates set (else 400 BUSINESS_LOCATION_MISSING). `start_location_type=home` (or empty) uses the address + coordinates from the body.",
       "method": "POST",
       "path": "/technicians",
       "pathParams": [],
@@ -1140,7 +1203,7 @@
             "description": "Home address (the day-start point when start_location_type=home)."
           },
           "assignment_tier": {
-            "description": "Crew tier the matching engine assigns by: lead (can head a job), buddy\n(crew helper), float (excluded from auto crew-assign).",
+            "description": "Crew tier the matching engine assigns by: lead (can head a job), buddy\n(crew helper), float (excluded from auto crew-assign). IGNORED — stored\nempty, no error — when the role is Booking Coordinator, Administrator or\nViewer: office roles are never assigned jobs. Technician, Owner,\nSupervisor and custom roles keep the tier.",
             "enum": [
               "lead",
               "buddy",
@@ -1572,7 +1635,7 @@
     {
       "name": "deleteTechnician",
       "title": "Remove a technician from the business",
-      "description": "Remove a technician from the business\n\nCloses the technician's membership: the profile is set to deactive and soft-deleted, and their access to this business ends on their next request. In the same operation they are removed from every other technician's buddy list, vehicles they own are released, and any personal-calendar connection they made for this business is revoked. Fires the technician.deleted webhook. Their underlying user identity is untouched, and so are memberships at other businesses.\n\nRemoval does NOT move their work: jobs still assigned to them keep the assignment and must be re-staffed. Do that BEFORE removing: use listCrewCandidates on each upcoming job, or re-plan the whole day with previewAbsenceResolve / commitAbsenceResolve (which needs a time-off record covering those days; create one with createTechnicianTimeOff).\n\nThis is a closed membership, not a pause. Re-adding the same email or phone later with createTechnician links the SAME person but opens a FRESH membership with a NEW technician id and none of the old buddy, vehicle or area links. If you expect the person back, suspend them from the dashboard instead; a suspended member is reactivated in place by createTechnician, keeping their id and group.\n\nThe last active Owner cannot be removed (TECHNICIAN_LAST_OWNER). API keys the person created are NOT revoked (an HR action must not take an integration down); if any are still active, the business Owners and Administrators are emailed a list of them.",
+      "description": "Remove a technician from the business\n\nCloses the technician's membership: the profile is set to deactive and soft-deleted, and their access to this business ends on their next request. In the same operation they are removed from every other technician's buddy list, vehicles they own are released, and any personal-calendar connection they made for this business is revoked. Fires the technician.deleted webhook. Their underlying user identity is untouched, and so are memberships at other businesses.\n\nRemoval is REFUSED while the member is still staffed on an open job, as the lead or through a crew session, where open means not completed, not archived and not deleted (409 TECHNICIAN_HAS_OPEN_JOBS; nothing is written). data.open_job_count is the exact count and is always present. data.jobs lists up to 20 of them (id, short_code, current_status_key, scheduled_at when confirmed) ONLY when the caller also holds job_manage (a credential that may manage the team but not the job board gets the count alone; the key is then absent). Re-staff them first: reassign each with listCrewCandidates, re-plan whole days with previewAbsenceResolve / commitAbsenceResolve (which needs a time-off record covering those days; create one with createTechnicianTimeOff), or, from the dashboard, complete or archive the job. To cut someone's access immediately while their work is re-staffed, suspend them from the dashboard: suspension is not gated.\n\nThis is a closed membership, not a pause. Re-adding the same email or phone later with createTechnician links the SAME person but opens a FRESH membership with a NEW technician id and none of the old buddy, vehicle or area links. If you expect the person back, suspend them from the dashboard instead; a suspended member is reactivated in place by createTechnician, keeping their id and group.\n\nThe last active Owner cannot be removed (TECHNICIAN_LAST_OWNER). API keys the person created are NOT revoked (an HR action must not take an integration down); if any are still active, the business Owners and Administrators are emailed a list of them.",
       "method": "DELETE",
       "path": "/technicians/{id}",
       "pathParams": [
@@ -1587,6 +1650,31 @@
           "id": {
             "type": "string",
             "description": "Technician ID"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "deleteTechnicianTimeOff",
+      "title": "Delete a technician's time off (e.g. back from a sick day)",
+      "description": "Delete a technician's time off (e.g. back from a sick day)\n\nRemoves a time-off record, in ANY status (pending, approved, rejected or cancelled). This is the \"the technician can come in after all\" call: once an approved record is deleted the technician is bookable again in that window for NEW bookings and schedule moves. It does NOT move any job back — jobs that `commitAbsenceResolve` already re-assigned to other technicians stay where they are (their customers may already have been told), and a job flagged as needing attention when the record was created keeps that flag until it is moved or re-assigned. To give the technician work again, book or move jobs onto them explicitly. The record is soft-deleted (it no longer appears in `GET /technicians/{id}/time-off`); deleting it again answers `TIME_OFF_NOT_FOUND`. A sandbox (`chsk_test_`) key can only delete sandbox records — a live record id answers `TIME_OFF_NOT_FOUND`, and the reverse holds for a live key.",
+      "method": "DELETE",
+      "path": "/technician-time-off/{id}",
+      "pathParams": [
+        "id"
+      ],
+      "queryParams": [],
+      "headerParams": [],
+      "bodyParams": [],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Time Off ID"
           }
         },
         "required": [
@@ -1988,6 +2076,7 @@
       "bodyParams": [
         "after_hours_override",
         "emergency_job_id",
+        "job",
         "limit",
         "mode",
         "start_at"
@@ -2000,9 +2089,104 @@
             "type": "boolean"
           },
           "emergency_job_id": {
-            "description": "ID of the P0 job to place.",
+            "description": "UUID of the P0 job to place. Send this OR `job`, never both and never neither.",
             "format": "uuid",
             "type": "string"
+          },
+          "job": {
+            "allOf": [
+              {
+                "properties": {
+                  "address": {
+                    "allOf": [
+                      {
+                        "properties": {
+                          "city": {
+                            "maxLength": 100,
+                            "type": "string"
+                          },
+                          "country": {
+                            "maxLength": 100,
+                            "type": "string"
+                          },
+                          "formatted": {
+                            "maxLength": 500,
+                            "type": "string"
+                          },
+                          "latitude": {
+                            "maximum": 90,
+                            "minimum": -90,
+                            "type": "number"
+                          },
+                          "line": {
+                            "maxLength": 255,
+                            "type": "string"
+                          },
+                          "line2": {
+                            "maxLength": 255,
+                            "type": "string"
+                          },
+                          "longitude": {
+                            "maximum": 180,
+                            "minimum": -180,
+                            "type": "number"
+                          },
+                          "postal_code": {
+                            "maxLength": 32,
+                            "type": "string"
+                          },
+                          "state": {
+                            "maxLength": 100,
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      }
+                    ],
+                    "description": "Service address for a caller who does not exist yet. Geocoded when it carries no coordinates."
+                  },
+                  "customer_id": {
+                    "description": "UUID of an existing customer — their stored address is used. Send this OR `address`.",
+                    "format": "uuid",
+                    "type": "string"
+                  },
+                  "demobilization_minutes": {
+                    "description": "Demobilization minutes after the work — same rules as mobilization_minutes.",
+                    "example": 15,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "job_duration_minutes": {
+                    "description": "Hands-on work minutes. Optional when the job type carries a default.",
+                    "example": 90,
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "job_type_id": {
+                    "description": "UUID of the job type: supplies default_duration_minutes when job_duration_minutes is omitted. Optional — omitted, the business's default job type applies.",
+                    "format": "uuid",
+                    "type": "string"
+                  },
+                  "mobilization_minutes": {
+                    "description": "Mobilization minutes before the work — same fallback rules as quoteJobRequest.",
+                    "example": 15,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "skill_ids": {
+                    "description": "UUIDs of skills the work needs. Optional; up to 20.",
+                    "items": {
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "maxItems": 20,
+                    "type": "array"
+                  }
+                },
+                "type": "object"
+              }
+            ],
+            "description": "A job that does not exist yet — the wizard's read-only preview before anything is written. Send this OR `emergency_job_id`."
           },
           "limit": {
             "description": "Max candidates to return (default 5, max 10).",
@@ -2030,7 +2214,6 @@
           }
         },
         "required": [
-          "emergency_job_id",
           "mode",
           "start_at"
         ]
@@ -2710,6 +2893,7 @@
         "after_hours_override",
         "displacement_mode",
         "emergency_job_id",
+        "job",
         "mode",
         "start_at",
         "technician_id"
@@ -2730,9 +2914,104 @@
             "type": "string"
           },
           "emergency_job_id": {
-            "description": "ID of the P0 job to insert.",
+            "description": "UUID of the P0 job to insert. Send this OR `job`, never both and never neither.",
             "format": "uuid",
             "type": "string"
+          },
+          "job": {
+            "allOf": [
+              {
+                "properties": {
+                  "address": {
+                    "allOf": [
+                      {
+                        "properties": {
+                          "city": {
+                            "maxLength": 100,
+                            "type": "string"
+                          },
+                          "country": {
+                            "maxLength": 100,
+                            "type": "string"
+                          },
+                          "formatted": {
+                            "maxLength": 500,
+                            "type": "string"
+                          },
+                          "latitude": {
+                            "maximum": 90,
+                            "minimum": -90,
+                            "type": "number"
+                          },
+                          "line": {
+                            "maxLength": 255,
+                            "type": "string"
+                          },
+                          "line2": {
+                            "maxLength": 255,
+                            "type": "string"
+                          },
+                          "longitude": {
+                            "maximum": 180,
+                            "minimum": -180,
+                            "type": "number"
+                          },
+                          "postal_code": {
+                            "maxLength": 32,
+                            "type": "string"
+                          },
+                          "state": {
+                            "maxLength": 100,
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      }
+                    ],
+                    "description": "Service address for a caller who does not exist yet. Geocoded when it carries no coordinates."
+                  },
+                  "customer_id": {
+                    "description": "UUID of an existing customer — their stored address is used. Send this OR `address`.",
+                    "format": "uuid",
+                    "type": "string"
+                  },
+                  "demobilization_minutes": {
+                    "description": "Demobilization minutes after the work — same rules as mobilization_minutes.",
+                    "example": 15,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "job_duration_minutes": {
+                    "description": "Hands-on work minutes. Optional when the job type carries a default.",
+                    "example": 90,
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "job_type_id": {
+                    "description": "UUID of the job type: supplies default_duration_minutes when job_duration_minutes is omitted. Optional — omitted, the business's default job type applies.",
+                    "format": "uuid",
+                    "type": "string"
+                  },
+                  "mobilization_minutes": {
+                    "description": "Mobilization minutes before the work — same fallback rules as quoteJobRequest.",
+                    "example": 15,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "skill_ids": {
+                    "description": "UUIDs of skills the work needs. Optional; up to 20.",
+                    "items": {
+                      "format": "uuid",
+                      "type": "string"
+                    },
+                    "maxItems": 20,
+                    "type": "array"
+                  }
+                },
+                "type": "object"
+              }
+            ],
+            "description": "A job that does not exist yet — the wizard's read-only preview before anything is written. Send this OR `emergency_job_id`."
           },
           "mode": {
             "description": "Cascade mode: overtime = displaced jobs stay same-day (tech works late); next_day = overflow rolls to the next working day.",
@@ -2759,7 +3038,6 @@
           }
         },
         "required": [
-          "emergency_job_id",
           "mode",
           "start_at",
           "technician_id"
@@ -3500,7 +3778,7 @@
     {
       "name": "updateTechnician",
       "title": "Update a technician",
-      "description": "Update a technician\n\nUpdates mutable technician profile fields. `start_location_type=office` re-snapshots the current business address + coordinates (body `address`/`start_location_lat`/`start_location_long` ignored; requires business coordinates, else 400 BUSINESS_LOCATION_MISSING). `start_location_type=home` (or empty) uses the address + coordinates from the body.",
+      "description": "Update a technician\n\nUpdates mutable technician profile fields. `assignment_tier` is ignored (stored empty, no error) for the Booking Coordinator, Administrator and Viewer roles, so moving a member into one of them clears the tier and frees their technician seat. `start_location_type=office` re-snapshots the current business address + coordinates (body `address`/`start_location_lat`/`start_location_long` ignored; requires business coordinates, else 400 BUSINESS_LOCATION_MISSING). `start_location_type=home` (or empty) uses the address + coordinates from the body.",
       "method": "PUT",
       "path": "/technicians/{id}",
       "pathParams": [
@@ -3574,7 +3852,7 @@
             "description": "Home address (the day-start point when start_location_type=home)."
           },
           "assignment_tier": {
-            "description": "Crew tier: lead / buddy / float (float = excluded from auto crew-assign).",
+            "description": "Crew tier: lead / buddy / float (float = excluded from auto crew-assign).\nIGNORED (stored empty, no error) for Booking Coordinator, Administrator\nand Viewer — office roles are never assigned jobs, so moving a member\ninto one of them clears the tier.",
             "enum": [
               "lead",
               "buddy",
