@@ -4,7 +4,7 @@
     {
       "name": "bookAndConfirmJobRequest",
       "title": "Book, schedule and confirm a job in one call",
-      "description": "Book, schedule and confirm a job in one call\n\nCreates the job, quotes it (job_duration_minutes, or the job type's default_duration_minutes) and confirms it at scheduled_at on the customer's behalf — the dashboard's \"book for a caller\" in a single request, built for voice agents and automation platforms that cannot run create → quote → slots → confirm.\n\nCustomer: send `customer_id`, or `customer` (+ `address`) to match-or-create by phone/email — a caller who already exists is matched, never duplicated. Find a caller first with listCustomers?phone=.\n\nEvery input is validated BEFORE anything is written (time and business timezone, future start, a duration or a job-type default, active job type, phone format); those failures are ordinary 4xx and create nothing.\n\n⚠️ Once the job is created it is never discarded, and the call answers 200 even if scheduling then fails: `confirmed: false` with `refusal` (stage + the exact error_code/data the quote or confirm endpoint would have returned, e.g. JOB_REQUEST_NO_TECHNICIAN_AVAILABLE with blockers). The job is then quoted and waiting in the coordinator's queue — tell the caller the office will confirm a time. Retry with the SAME Idempotency-Key to replay the result; a new key books a second job.",
+      "description": "Book, schedule and confirm a job in one call\n\nCreates the job, quotes it (job_duration_minutes, or the job type's default_duration_minutes) and confirms it at scheduled_at on the customer's behalf — the dashboard's \"book for a caller\" in a single request, built for voice agents and automation platforms that cannot run create → quote → slots → confirm.\n\nCustomer: send `customer_id`, or `customer` (+ `address`) to match-or-create by phone/email — a caller who already exists is matched, never duplicated. Find a caller first with listCustomers?phone=.\n\nEvery input is validated BEFORE anything is written (time and business timezone, future start, a duration or a job-type default, non-negative mobilization/demobilization minutes, active job type, phone format); those failures are ordinary 4xx and create nothing.\n\n⚠️ A `technician_id` the engine cannot honour at that time is refused BEFORE anything is written: `409 JOB_REQUEST_TECH_INFEASIBLE`, no job, no customer, no webhook. Change the technician or the time and send again with a NEW Idempotency-Key: like every 4xx here the 409 is cached against its key for 24h, so the same key replays it (same body) or answers 422 IDEMPOTENCY_KEY_REUSE (changed body). This check is BEST-EFFORT — if the scheduling engine cannot be reached it is skipped and the call proceeds, so a pinned request can still come back as the 200 + `refusal` below. Handle both.\n\n⚠️ ONE carve-out: a `p0` whose pinned technician is merely BUSY is NOT refused here. The job is created and the call answers 200 + `refusal` carrying JOB_REQUEST_P0_REQUIRES_DISPLACEMENT, because the remedy for that code is the emergency flow and listEmergencyCandidates / previewEmergencyReschedule / commitEmergencyReschedule all require `emergency_job_id` — a 409 carries no job id. Read `job_id` off the 200 and run the emergency flow; do not re-book. Every other doomed pin on a `p0` (out of area, missing skills, not a lead) still answers 409.\n\n⚠️ Otherwise, once the job is created it is never discarded, and the call answers 200 even if scheduling then fails: `confirmed: false` with `refusal` (stage + the exact error_code/data the quote or confirm endpoint would have returned, e.g. JOB_REQUEST_NO_TECHNICIAN_AVAILABLE with blockers). The job is then quoted and waiting in the coordinator's queue — tell the caller the office will confirm a time. Retry with the SAME Idempotency-Key to replay the result; a new key books a second job.",
       "method": "POST",
       "path": "/job-requests/book-and-confirm",
       "pathParams": [],
@@ -19,9 +19,11 @@
         "address",
         "customer",
         "customer_id",
+        "demobilization_minutes",
         "description",
         "job_duration_minutes",
         "job_type_id",
+        "mobilization_minutes",
         "priority",
         "scheduled_at",
         "skill_ids",
@@ -118,6 +120,12 @@
             "format": "uuid",
             "type": "string"
           },
+          "demobilization_minutes": {
+            "description": "Demobilization (teardown) minutes after the work, min 0 — same rules as mobilization_minutes.",
+            "example": 15,
+            "minimum": 0,
+            "type": "integer"
+          },
           "description": {
             "description": "Free-text description of the work. Optional; max 2000 chars.",
             "maxLength": 2000,
@@ -133,6 +141,12 @@
             "description": "UUID of the job type: it classifies the job and supplies default_duration_minutes when job_duration_minutes is omitted. Optional: omitted, the business's DEFAULT job type (is_default, the seeded \"General\", 60 min + 15 + 15 unless the business changed it) is used.",
             "format": "uuid",
             "type": "string"
+          },
+          "mobilization_minutes": {
+            "description": "Mobilization (setup/travel-prep) minutes before the work, min 0 — same meaning as on quoteJobRequest. Optional: omitted, the job type's default_mobilization_minutes applies when job_duration_minutes is ALSO omitted, and 0 when you sent a duration (an explicit duration is never mixed with the type's buffers). A value you send always wins. Counted when checking whether a pinned technician_id is free.",
+            "example": 15,
+            "minimum": 0,
+            "type": "integer"
           },
           "priority": {
             "description": "Scheduling priority p0–p3. Optional; omitted = the business default.",
@@ -445,7 +459,7 @@
     {
       "name": "confirmJobRequest",
       "title": "Confirm a booking on behalf of the customer",
-      "description": "Confirm a booking on behalf of the customer\n\nFires the customer-actor `confirm_booking` action from the BUSINESS surface (audited as business_on_behalf). Two uses: (1) LIVE — staff confirm a slot for a customer who booked by phone; (2) SANDBOX — the customer magic-token surface is live-only (a sandbox job's link can never reach a real customer), so this is the ONLY way to drive a sandbox test job past booking (book → quote → confirm → assign → complete). Body carries the customer-chosen scheduled_at (business-local naive datetime).\nDECISION TABLE — every 409 this endpoint returns, and the correct NEXT STEP (branch on error_code, never on the HTTP status):\n• JOB_REQUEST_STAGE_CONFLICT — the job changed since you read it (NOTE: every FAILED confirm attempt also bumps status_version by design). Next: re-GET the job, retry with the fresh status_version.\n• JOB_REQUEST_ACTION_NOT_PENDING — the job is no longer at the confirm step (usually: already confirmed). Next: re-GET and show current status; do not retry.\n• JOB_REQUEST_NO_TECHNICIAN_AVAILABLE — the TIME is infeasible for everyone (outside working hours / the customer window, or nobody qualifies). Best-effort `data` breakdown: `considered` (roster size checked), `blocked_by` (histogram of blockers[0].kind → count, only kinds that actually blocked someone), `truncated` (roster larger than the check covered). Next: pick another time via booking-windows / time-segments. NOT an emergency case — displacement cannot conjure capacity.\n• JOB_REQUEST_TECH_INFEASIBLE — the FORCED technician can never take the job then; `data.reason` says why (blockers[0].kind): outside_service_area | missing_required_skills | not_lead_tier | no_working_day | on_time_off | off_shift | visit_too_long | cannot_arrive_in_time (see `data.earliest_feasible_at`, RFC3339 UTC — the first same-day time they CAN be on site → offer it) | not_available_today (diagnosis unavailable). `data.blockers[]` names EVERY cause, most-structural first (`data.technician` carries an id; `name` is always empty on this confirm path today — nothing here calls the name lookup move's TECH_NOT_FEASIBLE payload uses); a UI that reads only `reason` still works. Next: keep the tech and reschedule to earliest_feasible_at+, OR keep the time and drop technician_id (auto-pick) / choose another tech from time-segments. NOT an emergency case.\n• JOB_REQUEST_P0_REQUIRES_DISPLACEMENT — the ONLY code that routes to the EMERGENCY flow: the job is P0, the tech qualifies, but the lane is genuinely occupied. Next: POST emergency/candidates → preview → commit (the commit auto-confirms). Caveat: if the occupying jobs are themselves P0 the preview will reject with EMERGENCY_RESCHEDULE_SLOT_OCCUPIED (P0 never displaces P0) — then pick another tech/time.",
+      "description": "Confirm a booking on behalf of the customer\n\nFires the customer-actor `confirm_booking` action from the BUSINESS surface (audited as business_on_behalf). Two uses: (1) LIVE — staff confirm a slot for a customer who booked by phone; (2) SANDBOX — the customer magic-token surface is live-only (a sandbox job's link can never reach a real customer), so this is the ONLY way to drive a sandbox test job past booking (book → quote → confirm → assign → complete). Body carries the customer-chosen scheduled_at (business-local naive datetime).\nDECISION TABLE — every 409 this endpoint returns, and the correct NEXT STEP (branch on error_code, never on the HTTP status):\n• JOB_REQUEST_STAGE_CONFLICT — the job changed since you read it (NOTE: every FAILED confirm attempt also bumps status_version by design). Next: re-GET the job, retry with the fresh status_version.\n• JOB_REQUEST_ACTION_NOT_PENDING — the job is no longer at the confirm step (usually: already confirmed). Next: re-GET and show current status; do not retry.\n• JOB_REQUEST_NO_TECHNICIAN_AVAILABLE — the TIME is infeasible for everyone (outside working hours / the customer window, or nobody qualifies). Best-effort `data` breakdown: `considered` (roster size checked), `blocked_by` (histogram of blockers[0].kind → count, only kinds that actually blocked someone), `truncated` (roster larger than the check covered). Next: pick another time via booking-windows / time-segments. NOT an emergency case — displacement cannot conjure capacity.\n• JOB_REQUEST_TECH_INFEASIBLE — the FORCED technician cannot take the job then; `data.reason` says why (blockers[0].kind): outside_service_area | missing_required_skills | not_lead_tier | no_working_day | on_time_off | off_shift | calendar_busy | calendar_conflict | visit_too_long | occupied (they are already working then — `data.earliest_feasible_at` is when they are free) | cannot_arrive_in_time (see `data.earliest_feasible_at`, RFC3339 UTC — the first same-day time they CAN be on site → offer it) | not_available_today (diagnosis unavailable). `data.blockers[]` names EVERY cause, most-structural first; `data.technician` carries `{id, name}`, name best-effort (empty only when the lookup itself could not resolve) — EXCEPT on not_lead_tier, which carries a flat `data.technician_id` and no technician object. A UI that reads only `reason` still works. Next: keep the tech and reschedule to earliest_feasible_at+, OR keep the time and drop technician_id (auto-pick) / choose another tech from time-segments. NOT an emergency case.\n• JOB_REQUEST_P0_REQUIRES_DISPLACEMENT — the ONLY code that routes to the EMERGENCY flow: the job is P0, the tech qualifies, but the lane is genuinely occupied. Next: POST emergency/candidates → preview → commit (the commit auto-confirms). Caveat: if the occupying jobs are themselves P0 the preview will reject with EMERGENCY_RESCHEDULE_SLOT_OCCUPIED (P0 never displaces P0) — then pick another tech/time.",
       "method": "POST",
       "path": "/job-requests/{id}/confirm",
       "pathParams": [
@@ -1587,6 +1601,31 @@
           "id": {
             "type": "string",
             "description": "Technician ID"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      }
+    },
+    {
+      "name": "deleteTechnicianTimeOff",
+      "title": "Delete a technician's time off (e.g. back from a sick day)",
+      "description": "Delete a technician's time off (e.g. back from a sick day)\n\nRemoves a time-off record, in ANY status (pending, approved, rejected or cancelled). This is the \"the technician can come in after all\" call: once an approved record is deleted the technician is bookable again in that window for NEW bookings and schedule moves. It does NOT move any job back — jobs that `commitAbsenceResolve` already re-assigned to other technicians stay where they are (their customers may already have been told), and a job flagged as needing attention when the record was created keeps that flag until it is moved or re-assigned. To give the technician work again, book or move jobs onto them explicitly. The record is soft-deleted (it no longer appears in `GET /technicians/{id}/time-off`); deleting it again answers `TIME_OFF_NOT_FOUND`. A sandbox (`chsk_test_`) key can only delete sandbox records — a live record id answers `TIME_OFF_NOT_FOUND`, and the reverse holds for a live key.",
+      "method": "DELETE",
+      "path": "/technician-time-off/{id}",
+      "pathParams": [
+        "id"
+      ],
+      "queryParams": [],
+      "headerParams": [],
+      "bodyParams": [],
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Time Off ID"
           }
         },
         "required": [
