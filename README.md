@@ -273,6 +273,8 @@ createJobRequest (priority: "p0") → quoteJobRequest
 listEmergencyCandidates                  → ranked techs + crew_recommendation
 previewEmergencyReschedule               → what moves (or reassigns)
 commitEmergencyReschedule                → inserted + auto-confirmed
+   (or preview with an inline `job` probe, then bookAndConfirmJobRequest
+    with priority p0 + emergency{dispatch: "now"} books and commits in one call)
 ```
 
 Sick-call flow (a technician is out — re-staff every job on their board at its UNCHANGED time):
